@@ -9,6 +9,7 @@ import { RootStackParamList } from '../../App';
 import { Colors, Fonts, Radius, Shadow } from '../theme';
 import { Badge, VerifiedBadge, StarRating } from '../components/UI';
 import { properties, universities } from '../data';
+import { Ionicons } from '@expo/vector-icons';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Main'>;
 
@@ -32,20 +33,26 @@ export default function HomeScreen({ navigation }: Props) {
       <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
         <View style={styles.headerTop}>
           <View>
-            <Text style={styles.greeting}>Good morning 👋</Text>
+            <Text style={styles.greeting}>Good morning </Text>
             <Text style={styles.heroName}>Hey, Siyanda!</Text>
           </View>
           <View style={styles.headerActions}>
             <TouchableOpacity
               style={styles.headerIcon}
-              onPress={() => (navigation as any).navigate('Notifications')}
+              onPress={() => (navigation as any).navigate("Notifications")}
             >
-              <Text style={styles.headerIconText}>🔔</Text>
+              <Text style={styles.headerIconText}>
+                <Ionicons
+                  name="notifications-outline"
+                  size={24}
+                  color="#ffffff"
+                />
+              </Text>
               <View style={styles.notifDot} />
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.avatar}
-              onPress={() => (navigation as any).navigate('Profile')}
+              onPress={() => (navigation as any).navigate("Profile")}
             >
               <Text style={styles.avatarText}>SD</Text>
             </TouchableOpacity>
@@ -55,11 +62,13 @@ export default function HomeScreen({ navigation }: Props) {
 
         <TouchableOpacity
           style={styles.searchBar}
-          onPress={() => (navigation as any).navigate('Explore')}
+          onPress={() => (navigation as any).navigate("Explore")}
           activeOpacity={0.7}
         >
-          <Text style={styles.searchIcon}>🔍</Text>
-          <Text style={styles.searchPlaceholder}>Search by university, location...</Text>
+          <Text style={styles.searchIcon}><Ionicons name="search-outline" size={24} color={Colors.slate400} /></Text>
+          <Text style={styles.searchPlaceholder}>
+            Search by university, location...
+          </Text>
         </TouchableOpacity>
       </View>
 
@@ -73,10 +82,18 @@ export default function HomeScreen({ navigation }: Props) {
         renderItem={({ item }) => (
           <TouchableOpacity
             onPress={() => setActiveFilter(activeFilter === item ? null : item)}
-            style={[styles.filterChip, activeFilter === item && styles.filterChipActive]}
+            style={[
+              styles.filterChip,
+              activeFilter === item && styles.filterChipActive,
+            ]}
             activeOpacity={0.7}
           >
-            <Text style={[styles.filterChipText, activeFilter === item && styles.filterChipTextActive]}>
+            <Text
+              style={[
+                styles.filterChipText,
+                activeFilter === item && styles.filterChipTextActive,
+              ]}
+            >
               {item}
             </Text>
           </TouchableOpacity>
@@ -87,7 +104,9 @@ export default function HomeScreen({ navigation }: Props) {
       <View style={styles.section}>
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Featured Accommodation</Text>
-          <TouchableOpacity onPress={() => (navigation as any).navigate('Explore')}>
+          <TouchableOpacity
+            onPress={() => (navigation as any).navigate("Explore")}
+          >
             <Text style={styles.seeAll}>See all</Text>
           </TouchableOpacity>
         </View>
@@ -101,32 +120,50 @@ export default function HomeScreen({ navigation }: Props) {
             <TouchableOpacity
               style={styles.card}
               activeOpacity={0.85}
-              onPress={() => (navigation as any).navigate('Property', { property: item })}
+              onPress={() =>
+                (navigation as any).navigate("Property", { property: item })
+              }
             >
               <View style={styles.cardImageWrapper}>
-                <Image source={{ uri: item.images[0] }} style={styles.cardImage} contentFit="cover" />
+                <Image
+                  source={{ uri: item.images[0] }}
+                  style={styles.cardImage}
+                  contentFit="cover"
+                />
                 {item.verified && (
                   <View style={styles.cardBadge}>
                     <VerifiedBadge />
                   </View>
                 )}
                 <TouchableOpacity
-                  style={[styles.favBtn, favorites.includes(item.id) && styles.favBtnActive]}
+                  style={[
+                    styles.favBtn,
+                    favorites.includes(item.id) && styles.favBtnActive,
+                  ]}
                   onPress={() => toggleFav(item.id)}
                 >
-                  <Text style={styles.favIcon}>{favorites.includes(item.id) ? '❤️' : '🤍'}</Text>
+                  <Text style={styles.favIcon}>
+                    {favorites.includes(item.id) ? <Ionicons name="heart" size={24} color="#fffefe" /> : <Ionicons name="heart-outline" size={24} color="#000" />}
+                  </Text>
                 </TouchableOpacity>
               </View>
               <View style={styles.cardBody}>
-                <Text style={styles.cardName} numberOfLines={1}>{item.name}</Text>
-                <Text style={styles.cardLocation}>{item.city} · {item.distance} km from campus</Text>
+                <Text style={styles.cardName} numberOfLines={1}>
+                  {item.name}
+                </Text>
+                <Text style={styles.cardLocation}>
+                  {item.city} · {item.distance} km from campus
+                </Text>
                 <View style={styles.cardFooter}>
                   <Text style={styles.cardPrice}>
-                    R{item.price.toLocaleString()}<Text style={styles.cardPriceSub}>/mo</Text>
+                    R{item.price.toLocaleString()}
+                    <Text style={styles.cardPriceSub}>/mo</Text>
                   </Text>
                   <StarRating rating={item.rating} />
                 </View>
-                <Text style={styles.cardRooms}>{item.available} rooms available</Text>
+                <Text style={styles.cardRooms}>
+                  {item.available} rooms available
+                </Text>
               </View>
             </TouchableOpacity>
           )}
@@ -141,7 +178,7 @@ export default function HomeScreen({ navigation }: Props) {
             <TouchableOpacity
               key={u.id}
               style={styles.uniCard}
-              onPress={() => (navigation as any).navigate('Explore')}
+              onPress={() => (navigation as any).navigate("Explore")}
               activeOpacity={0.8}
             >
               <View style={styles.uniIconBox}>
@@ -157,7 +194,9 @@ export default function HomeScreen({ navigation }: Props) {
       {/* Promo Banner */}
       <View style={styles.promoSection}>
         <Image
-          source={{ uri: 'https://images.unsplash.com/photo-1571260899304-425eee4c7efc?w=800&h=300&fit=crop&auto=format' }}
+          source={{
+            uri: "https://images.unsplash.com/photo-1571260899304-425eee4c7efc?w=800&h=300&fit=crop&auto=format",
+          }}
           style={StyleSheet.absoluteFillObject}
           contentFit="cover"
         />
@@ -165,7 +204,9 @@ export default function HomeScreen({ navigation }: Props) {
         <View style={styles.promoContent}>
           <Text style={styles.promoLabel}>NEW LISTINGS</Text>
           <Text style={styles.promoTitle}>Properties near UNIVEN</Text>
-          <TouchableOpacity onPress={() => (navigation as any).navigate('Explore')}>
+          <TouchableOpacity
+            onPress={() => (navigation as any).navigate("Explore")}
+          >
             <Text style={styles.promoAction}>Explore now →</Text>
           </TouchableOpacity>
         </View>
@@ -276,6 +317,8 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     ...Shadow.sm,
     marginRight: 4,
+    marginBottom: 5,
+    marginTop: 5,
   },
   cardImageWrapper: { position: "relative", height: 170 },
   cardImage: { width: "100%", height: "100%" },

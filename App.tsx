@@ -21,6 +21,7 @@ import {
 
 import { Colors, Fonts } from './src/theme';
 import { Property } from './src/data';
+import {Ionicons} from '@expo/vector-icons';
 
 // Screens
 import SplashScreen from './src/screens/SplashScreen';
@@ -41,6 +42,17 @@ import ChatScreen from './src/screens/ChatScreen';
 import NotificationsScreen from './src/screens/NotificationsScreen';
 import ProfileScreen from './src/screens/ProfileScreen';
 import ManagerScreen from './src/screens/ManagerScreen';
+
+//font awesome
+import { FontAwesomeIcon } from "@fortawesome/react-native-fontawesome";
+import {
+  faHouse,
+  faMagnifyingGlass,
+  faHeart,
+  faClipboard,
+  faComments,
+  faUser,
+} from "@fortawesome/free-solid-svg-icons";
 
 // ─── Navigation Types ─────────────────────────────────────────────────────────
 export type RootStackParamList = {
@@ -91,55 +103,111 @@ function TabIcon({ icon, focused }: { icon: string; focused: boolean }) {
 function MainTabs() {
   return (
     <Tab.Navigator
-      screenOptions={{
-        headerShown: false,
-        tabBarActiveTintColor: Colors.blue,
-        tabBarInactiveTintColor: Colors.slate400,
-        tabBarStyle: {
-          backgroundColor: Colors.white,
-          borderTopColor: Colors.slate100,
-          borderTopWidth: 1,
-          height: 62,
-          paddingBottom: 8,
-          paddingTop: 4,
-        },
-        tabBarLabelStyle: {
-          fontSize: 10,
-          fontFamily: Fonts.bodyMed,
-        },
-      }}
-    >
-      <Tab.Screen
-        name="Home"
-        component={HomeTabScreen}
-        options={{ tabBarIcon: ({ focused }) => <TabIcon icon="🏠" focused={focused} /> }}
-      />
-      <Tab.Screen
-        name="Explore"
-        component={ExploreTabScreen}
-        options={{ tabBarIcon: ({ focused }) => <TabIcon icon="🔍" focused={focused} /> }}
-      />
-      <Tab.Screen
-        name="Favorites"
-        component={FavoritesTabScreen}
-        options={{ tabBarIcon: ({ focused }) => <TabIcon icon="🤍" focused={focused} /> }}
-      />
-      <Tab.Screen
-        name="Bookings"
-        component={BookingsTabScreen}
-        options={{ tabBarIcon: ({ focused }) => <TabIcon icon="📋" focused={focused} /> }}
-      />
-      <Tab.Screen
-        name="Messages"
-        component={MessagesTabScreen}
-        options={{ tabBarIcon: ({ focused }) => <TabIcon icon="💬" focused={focused} /> }}
-      />
-      <Tab.Screen
-        name="Profile"
-        component={ProfileTabScreen}
-        options={{ tabBarIcon: ({ focused }) => <TabIcon icon="👤" focused={focused} /> }}
-      />
-    </Tab.Navigator>
+  screenOptions={{
+    headerShown: false,
+
+    tabBarActiveTintColor: Colors.blue,
+    tabBarInactiveTintColor: Colors.slate400,
+
+    tabBarStyle: {
+      backgroundColor: Colors.white,
+      borderTopColor: Colors.slate100,
+      borderTopWidth: 1,
+      height: 62,
+      paddingBottom: 8,
+      paddingTop: 4,
+    },
+
+    tabBarLabelStyle: {
+      fontSize: 10,
+      fontFamily: Fonts.bodyMed,
+    },
+  }}
+>
+  <Tab.Screen
+    name="Home"
+    component={HomeTabScreen}
+    options={{
+      tabBarIcon: ({ color, size }) => (
+        <FontAwesomeIcon
+          icon={faHouse}
+          size={size}
+          color={color}
+        />
+      ),
+    }}
+  />
+
+  <Tab.Screen
+    name="Explore"
+    component={ExploreTabScreen}
+    options={{
+      tabBarIcon: ({ color, size }) => (
+        <FontAwesomeIcon
+          icon={faMagnifyingGlass}
+          size={size}
+          color={color}
+        />
+      ),
+    }}
+  />
+
+  <Tab.Screen
+    name="Favorites"
+    component={FavoritesTabScreen}
+    options={{
+      tabBarIcon: ({ color, size }) => (
+        <FontAwesomeIcon
+          icon={faHeart}
+          size={size}
+          color={color}
+        />
+      ),
+    }}
+  />
+
+  <Tab.Screen
+    name="Bookings"
+    component={BookingsTabScreen}
+    options={{
+      tabBarIcon: ({ color, size }) => (
+        <FontAwesomeIcon
+          icon={faClipboard}
+          size={size}
+          color={color}
+        />
+      ),
+    }}
+  />
+
+  <Tab.Screen
+    name="Messages"
+    component={MessagesTabScreen}
+    options={{
+      tabBarIcon: ({ color, size }) => (
+        <FontAwesomeIcon
+          icon={faComments}
+          size={size}
+          color={color}
+        />
+      ),
+    }}
+  />
+
+  <Tab.Screen
+    name="Profile"
+    component={ProfileTabScreen}
+    options={{
+      tabBarIcon: ({ color, size }) => (
+        <FontAwesomeIcon
+          icon={faUser}
+          size={size}
+          color={color}
+        />
+      ),
+    }}
+  />
+</Tab.Navigator>
   );
 }
 
