@@ -114,6 +114,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: Colors.slate100,
   },
+  
   headerTitle: {
     fontSize: 24,
     fontFamily: Fonts.heading,

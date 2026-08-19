@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput, ScrollView,
 } from 'react-native';
+import Slider from "@react-native-community/slider";
 import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -9,7 +10,8 @@ import { RootStackParamList } from '../../App';
 import { Colors, Fonts, Radius, Shadow } from '../theme';
 import { Badge, VerifiedBadge, StarRating, Btn } from '../components/UI';
 import { properties } from '../data';
-
+import { installFormDataPatch } from 'expo/build/winter/FormData';
+import { Ionicons } from '@expo/vector-icons';
 type Props = NativeStackScreenProps<RootStackParamList, 'Main'>;
 
 const amenityOptions = ['Wi-Fi', 'Security', 'Parking', 'Laundry', 'Study Area', 'Kitchen', 'Gym'];
@@ -37,10 +39,13 @@ export default function ExploreScreen({ navigation }: Props) {
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>Explore</Text>
+      </View>
       {/* Search bar */}
       <View style={styles.searchRow}>
         <View style={styles.searchBar}>
-          <Text style={styles.searchIcon}>🔍</Text>
+          <Ionicons name="search" size={20} color={Colors.slate400} />
           <TextInput
             style={styles.searchInput}
             placeholder="University, city or property..."
@@ -53,41 +58,98 @@ export default function ExploreScreen({ navigation }: Props) {
           style={[styles.filterBtn, showFilters && styles.filterBtnActive]}
           onPress={() => setShowFilters(!showFilters)}
         >
-          <Text style={styles.filterBtnText}>⚙️</Text>
+          <Ionicons name="filter" size={20} color={Colors.slate400} />
         </TouchableOpacity>
       </View>
 
       {/* Filter panel */}
-      {showFilters && (
-        <View style={styles.filterPanel}>
-          <Text style={styles.filterLabel}>Max price: R{priceMax.toLocaleString()}/month</Text>
-          <View style={styles.priceRow}>
-            <Text style={styles.priceHint}>R1,000</Text>
-            <Text style={styles.priceHint}>R10,000</Text>
-          </View>
-          <Text style={styles.filterLabel}>Amenities</Text>
-          <View style={styles.amenityRow}>
-            {amenityOptions.map((a) => (
-              <TouchableOpacity
-                key={a}
-                onPress={() => toggleAmenity(a)}
-                style={[styles.amenityChip, selectedAmenities.includes(a) && styles.amenityChipActive]}
-              >
-                <Text style={[styles.amenityText, selectedAmenities.includes(a) && styles.amenityTextActive]}>{a}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-          <View style={styles.filterActions}>
-            <Btn variant="secondary" onPress={() => { setPriceMax(10000); setSelectedAmenities([]); }} style={styles.filterActionBtn}>
-              Clear all
-            </Btn>
-            <Btn onPress={() => setShowFilters(false)} style={styles.filterActionBtn}>
-              Apply
-            </Btn>
-          </View>
-        </View>
-      )}
+{showFilters && (
+  <View style={styles.filterPanel}>
+    <Text style={styles.filterLabel}>
+      Max price: R{priceMax.toLocaleString()}/month
+    </Text>
 
+{/* Price Slider */}
+<View style={styles.sliderContainer}>
+
+  {/* Thick blue track */}
+  <View
+    style={[
+      styles.sliderTrack,
+      {
+        width: `${((priceMax - 1000) / 9000) * 100}%`,
+      },
+    ]}
+  />
+
+  {/* Slider for dragging */}
+  <Slider
+    style={styles.priceSlider}
+    minimumValue={1000}
+    maximumValue={10000}
+    value={priceMax}
+    step={500}
+    minimumTrackTintColor="transparent"
+    maximumTrackTintColor="#E5E7EB"
+    thumbTintColor="#2563EB"
+    onValueChange={(value) => setPriceMax(value)}
+  />
+
+</View>
+
+    {/* Price labels */}
+    <View style={styles.priceRow}>
+      <Text style={styles.priceHint}>R1,000</Text>
+      <Text style={styles.priceHint}>R10,000</Text>
+    </View>
+
+    <Text style={styles.filterLabel}>Amenities</Text>
+
+    <View style={styles.amenityRow}>
+      {amenityOptions.map((a) => (
+        <TouchableOpacity
+          key={a}
+          onPress={() => toggleAmenity(a)}
+          style={[
+            styles.amenityChip,
+            selectedAmenities.includes(a) &&
+              styles.amenityChipActive,
+          ]}
+        >
+          <Text
+            style={[
+              styles.amenityText,
+              selectedAmenities.includes(a) &&
+                styles.amenityTextActive,
+            ]}
+          >
+            {a}
+          </Text>
+        </TouchableOpacity>
+      ))}
+    </View>
+
+    <View style={styles.filterActions}>
+      <Btn
+        variant="secondary"
+        onPress={() => {
+          setPriceMax(10000);
+          setSelectedAmenities([]);
+        }}
+        style={styles.filterActionBtn}
+      >
+        Clear all
+      </Btn>
+
+      <Btn
+        onPress={() => setShowFilters(false)}
+        style={styles.filterActionBtn}
+      >
+        Apply
+      </Btn>
+    </View>
+  </View>
+)}
       {/* Sort chips */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.sortRow}>
         <Text style={styles.sortLabel}>Sort: </Text>
@@ -119,7 +181,7 @@ export default function ExploreScreen({ navigation }: Props) {
                 style={[styles.favBtn, favorites.includes(item.id) && styles.favBtnActive]}
                 onPress={() => toggleFav(item.id)}
               >
-                <Text>{favorites.includes(item.id) ? '❤️' : '🤍'}</Text>
+                <Text>{favorites.includes(item.id) ? <Ionicons name="heart" size={24} color="#fffefe"/> : <Ionicons name="heart-outline" size={24} color= "#000" />}</Text>
               </TouchableOpacity>
             </View>
             <View style={styles.cardBody}>
@@ -160,6 +222,32 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: Colors.slate100,
   },
+sliderContainer: {
+  width: "100%",
+  height: 40,
+  justifyContent: "center",
+  position: "relative",
+},
+
+sliderTrack: {
+  position: "absolute",
+  left: 0,
+  height: 8,
+  backgroundColor: "#2563EB",
+  borderRadius: 10,
+},
+
+priceSlider: {
+  width: "100%",
+  height: 40,
+  marginTop: 4,
+  marginBottom: 2,
+},
+
+slider: {
+  width: "100%",
+  height: 40,
+},
   searchBar: {
     flex: 1,
     flexDirection: "row",
@@ -169,6 +257,21 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     gap: 8,
   },
+  headerTitle: {
+    fontSize: 24,
+    fontFamily: Fonts.heading,
+    color: Colors.slate900,
+  },
+  header: {
+    backgroundColor: Colors.white,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    borderBottomWidth: 0,
+    borderBottomColor: Colors.slate100,
+  },
   searchIcon: { fontSize: 15 },
   searchInput: {
     flex: 1,
@@ -176,6 +279,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontFamily: Fonts.body,
     color: Colors.slate800,
+    
   },
   filterBtn: {
     width: 44,
@@ -225,7 +329,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 10,
     backgroundColor: Colors.white,
-    borderBottomWidth: 1,
+    borderBottomWidth: 4,
     borderBottomColor: Colors.slate100,
     gap: 8,
     alignItems: "center",
