@@ -1,0 +1,26 @@
+{
+  "expo": {
+    "name": "CampusStay",
+    "slug": "campus-stay",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "backgroundColor": "#0F1B2D"
+    },
+    "android": {
+      "softwareKeyboardLayoutMode": "pan",
+      "package": "com.campusstay.app"
+    },
+    "plugins": [
+      "expo-font",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#0F1B2D"
+        }
+      ],
+      "expo-asset"
+    ]
+  }
+}
