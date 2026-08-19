@@ -45,11 +45,11 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: Colors.navy,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
   },
   content: {
-    alignItems: 'center',
+    alignItems: "center",
     paddingHorizontal: 32,
   },
   logoBox: {
@@ -57,8 +57,8 @@ const styles = StyleSheet.create({
     height: 80,
     borderRadius: 22,
     backgroundColor: Colors.blue,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
     marginBottom: 24,
     shadowColor: Colors.blue,
     shadowOffset: { width: 0, height: 8 },
@@ -78,24 +78,24 @@ const styles = StyleSheet.create({
   tagline: {
     fontSize: 15,
     fontFamily: Fonts.body,
-    color: '#93C5FD',
-    textAlign: 'center',
+    color: "#93C5FD",
+    textAlign: "center",
     lineHeight: 22,
   },
   dots: {
-    position: 'absolute',
+    position: "absolute",
     bottom: 60,
-    flexDirection: 'row',
+    flexDirection: "row",
     gap: 6,
   },
   dot: {
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: 'rgba(147,197,253,0.4)',
+    backgroundColor: "rgba(147,197,253,0.4)",
   },
   dotActive: {
     width: 24,
-    backgroundColor: '#93C5FD',
+    backgroundColor: "#93C5FD",
   },
 });
