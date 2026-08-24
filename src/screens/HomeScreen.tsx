@@ -9,7 +9,6 @@ import { RootStackParamList } from '../../App';
 import { Colors, Fonts, Radius, Shadow } from '../theme';
 import { Badge, VerifiedBadge, StarRating } from '../components/UI';
 import { properties, universities } from '../data';
-import { Ionicons } from '@expo/vector-icons';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Main'>;
 
@@ -33,26 +32,20 @@ export default function HomeScreen({ navigation }: Props) {
       <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
         <View style={styles.headerTop}>
           <View>
-            <Text style={styles.greeting}>Good morning </Text>
+            <Text style={styles.greeting}>Good morning 👋</Text>
             <Text style={styles.heroName}>Hey, Siyanda!</Text>
           </View>
           <View style={styles.headerActions}>
             <TouchableOpacity
               style={styles.headerIcon}
-              onPress={() => (navigation as any).navigate("Notifications")}
+              onPress={() => (navigation as any).navigate('Notifications')}
             >
-              <Text style={styles.headerIconText}>
-                <Ionicons
-                  name="notifications-outline"
-                  size={24}
-                  color="#ffffff"
-                />
-              </Text>
+              <Text style={styles.headerIconText}>🔔</Text>
               <View style={styles.notifDot} />
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.avatar}
-              onPress={() => (navigation as any).navigate("Profile")}
+              onPress={() => (navigation as any).navigate('Profile')}
             >
               <Text style={styles.avatarText}>SD</Text>
             </TouchableOpacity>
@@ -62,13 +55,11 @@ export default function HomeScreen({ navigation }: Props) {
 
         <TouchableOpacity
           style={styles.searchBar}
-          onPress={() => (navigation as any).navigate("Explore")}
+          onPress={() => (navigation as any).navigate('Explore')}
           activeOpacity={0.7}
         >
-          <Text style={styles.searchIcon}><Ionicons name="search-outline" size={24} color={Colors.slate400} /></Text>
-          <Text style={styles.searchPlaceholder}>
-            Search by university, location...
-          </Text>
+          <Text style={styles.searchIcon}>🔍</Text>
+          <Text style={styles.searchPlaceholder}>Search by university, location...</Text>
         </TouchableOpacity>
       </View>
 
@@ -82,18 +73,10 @@ export default function HomeScreen({ navigation }: Props) {
         renderItem={({ item }) => (
           <TouchableOpacity
             onPress={() => setActiveFilter(activeFilter === item ? null : item)}
-            style={[
-              styles.filterChip,
-              activeFilter === item && styles.filterChipActive,
-            ]}
+            style={[styles.filterChip, activeFilter === item && styles.filterChipActive]}
             activeOpacity={0.7}
           >
-            <Text
-              style={[
-                styles.filterChipText,
-                activeFilter === item && styles.filterChipTextActive,
-              ]}
-            >
+            <Text style={[styles.filterChipText, activeFilter === item && styles.filterChipTextActive]}>
               {item}
             </Text>
           </TouchableOpacity>
@@ -104,9 +87,7 @@ export default function HomeScreen({ navigation }: Props) {
       <View style={styles.section}>
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Featured Accommodation</Text>
-          <TouchableOpacity
-            onPress={() => (navigation as any).navigate("Explore")}
-          >
+          <TouchableOpacity onPress={() => (navigation as any).navigate('Explore')}>
             <Text style={styles.seeAll}>See all</Text>
           </TouchableOpacity>
         </View>
@@ -120,50 +101,32 @@ export default function HomeScreen({ navigation }: Props) {
             <TouchableOpacity
               style={styles.card}
               activeOpacity={0.85}
-              onPress={() =>
-                (navigation as any).navigate("Property", { property: item })
-              }
+              onPress={() => (navigation as any).navigate('Property', { property: item })}
             >
               <View style={styles.cardImageWrapper}>
-                <Image
-                  source={{ uri: item.images[0] }}
-                  style={styles.cardImage}
-                  contentFit="cover"
-                />
+                <Image source={{ uri: item.images[0] }} style={styles.cardImage} contentFit="cover" />
                 {item.verified && (
                   <View style={styles.cardBadge}>
                     <VerifiedBadge />
                   </View>
                 )}
                 <TouchableOpacity
-                  style={[
-                    styles.favBtn,
-                    favorites.includes(item.id) && styles.favBtnActive,
-                  ]}
+                  style={[styles.favBtn, favorites.includes(item.id) && styles.favBtnActive]}
                   onPress={() => toggleFav(item.id)}
                 >
-                  <Text style={styles.favIcon}>
-                    {favorites.includes(item.id) ? <Ionicons name="heart" size={24} color="#fffefe" /> : <Ionicons name="heart-outline" size={24} color="#000" />}
-                  </Text>
+                  <Text style={styles.favIcon}>{favorites.includes(item.id) ? '❤️' : '🤍'}</Text>
                 </TouchableOpacity>
               </View>
               <View style={styles.cardBody}>
-                <Text style={styles.cardName} numberOfLines={1}>
-                  {item.name}
-                </Text>
-                <Text style={styles.cardLocation}>
-                  {item.city} · {item.distance} km from campus
-                </Text>
+                <Text style={styles.cardName} numberOfLines={1}>{item.name}</Text>
+                <Text style={styles.cardLocation}>{item.city} · {item.distance} km from campus</Text>
                 <View style={styles.cardFooter}>
                   <Text style={styles.cardPrice}>
-                    R{item.price.toLocaleString()}
-                    <Text style={styles.cardPriceSub}>/mo</Text>
+                    R{item.price.toLocaleString()}<Text style={styles.cardPriceSub}>/mo</Text>
                   </Text>
                   <StarRating rating={item.rating} />
                 </View>
-                <Text style={styles.cardRooms}>
-                  {item.available} rooms available
-                </Text>
+                <Text style={styles.cardRooms}>{item.available} rooms available</Text>
               </View>
             </TouchableOpacity>
           )}
@@ -178,7 +141,7 @@ export default function HomeScreen({ navigation }: Props) {
             <TouchableOpacity
               key={u.id}
               style={styles.uniCard}
-              onPress={() => (navigation as any).navigate("Explore")}
+              onPress={() => (navigation as any).navigate('Explore')}
               activeOpacity={0.8}
             >
               <View style={styles.uniIconBox}>
@@ -194,9 +157,7 @@ export default function HomeScreen({ navigation }: Props) {
       {/* Promo Banner */}
       <View style={styles.promoSection}>
         <Image
-          source={{
-            uri: "https://images.unsplash.com/photo-1571260899304-425eee4c7efc?w=800&h=300&fit=crop&auto=format",
-          }}
+          source={{ uri: 'https://images.unsplash.com/photo-1571260899304-425eee4c7efc?w=800&h=300&fit=crop&auto=format' }}
           style={StyleSheet.absoluteFillObject}
           contentFit="cover"
         />
@@ -204,9 +165,7 @@ export default function HomeScreen({ navigation }: Props) {
         <View style={styles.promoContent}>
           <Text style={styles.promoLabel}>NEW LISTINGS</Text>
           <Text style={styles.promoTitle}>Properties near UNIVEN</Text>
-          <TouchableOpacity
-            onPress={() => (navigation as any).navigate("Explore")}
-          >
+          <TouchableOpacity onPress={() => (navigation as any).navigate('Explore')}>
             <Text style={styles.promoAction}>Explore now →</Text>
           </TouchableOpacity>
         </View>
@@ -219,68 +178,28 @@ const { width } = Dimensions.get('window');
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
-  header: {
-    backgroundColor: Colors.navy,
-    paddingHorizontal: 20,
-    paddingBottom: 20,
-  },
-  headerTop: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 4,
-  },
+  header: { backgroundColor: Colors.navy, paddingHorizontal: 20, paddingBottom: 20 },
+  headerTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
   greeting: { color: Colors.slate400, fontSize: 13, fontFamily: Fonts.body },
   heroName: { color: Colors.white, fontSize: 24, fontFamily: Fonts.heading },
-  heroSub: {
-    color: Colors.slate300,
-    fontSize: 13,
-    fontFamily: Fonts.body,
-    marginBottom: 14,
-  },
-  headerActions: { flexDirection: "row", gap: 10, alignItems: "center" },
-  headerIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "rgba(255,255,255,0.1)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
+  heroSub: { color: Colors.slate300, fontSize: 13, fontFamily: Fonts.body, marginBottom: 14 },
+  headerActions: { flexDirection: 'row', gap: 10, alignItems: 'center' },
+  headerIcon: { width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.1)', alignItems: 'center', justifyContent: 'center' },
   headerIconText: { fontSize: 18 },
-  notifDot: {
-    position: "absolute",
-    top: 8,
-    right: 8,
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: Colors.red500,
-  },
-  avatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: Colors.blue,
-    alignItems: "center",
-    justifyContent: "center",
-  },
+  notifDot: { position: 'absolute', top: 8, right: 8, width: 8, height: 8, borderRadius: 4, backgroundColor: Colors.red500 },
+  avatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: Colors.blue, alignItems: 'center', justifyContent: 'center' },
   avatarText: { color: Colors.white, fontSize: 13, fontFamily: Fonts.bodySemi },
   searchBar: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "rgba(255,255,255,0.1)",
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.1)',
     borderRadius: Radius.lg,
     paddingHorizontal: 14,
     paddingVertical: 13,
     gap: 10,
   },
   searchIcon: { fontSize: 16 },
-  searchPlaceholder: {
-    color: Colors.slate300,
-    fontSize: 14,
-    fontFamily: Fonts.body,
-  },
+  searchPlaceholder: { color: Colors.slate300, fontSize: 14, fontFamily: Fonts.body },
   filtersContainer: { paddingHorizontal: 20, paddingVertical: 16, gap: 8 },
   filterChip: {
     paddingHorizontal: 14,
@@ -291,86 +210,44 @@ const styles = StyleSheet.create({
     borderColor: Colors.slate200,
   },
   filterChipActive: { backgroundColor: Colors.blue, borderColor: Colors.blue },
-  filterChipText: {
-    fontSize: 13,
-    fontFamily: Fonts.bodyMed,
-    color: Colors.slate700,
-  },
+  filterChipText: { fontSize: 13, fontFamily: Fonts.bodyMed, color: Colors.slate700 },
   filterChipTextActive: { color: Colors.white },
   section: { paddingHorizontal: 20, marginBottom: 24 },
-  sectionHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 14,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontFamily: Fonts.heading,
-    color: Colors.slate900,
-  },
+  sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
+  sectionTitle: { fontSize: 18, fontFamily: Fonts.heading, color: Colors.slate900 },
   seeAll: { fontSize: 13, fontFamily: Fonts.bodyMed, color: Colors.blue },
   card: {
     width: 280,
     backgroundColor: Colors.white,
     borderRadius: Radius.xl,
-    overflow: "hidden",
+    overflow: 'hidden',
     ...Shadow.sm,
     marginRight: 4,
-    marginBottom: 5,
-    marginTop: 5,
   },
-  cardImageWrapper: { position: "relative", height: 170 },
-  cardImage: { width: "100%", height: "100%" },
-  cardBadge: { position: "absolute", top: 10, left: 10 },
+  cardImageWrapper: { position: 'relative', height: 170 },
+  cardImage: { width: '100%', height: '100%' },
+  cardBadge: { position: 'absolute', top: 10, left: 10 },
   favBtn: {
-    position: "absolute",
+    position: 'absolute',
     top: 10,
     right: 10,
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: "rgba(255,255,255,0.85)",
-    alignItems: "center",
-    justifyContent: "center",
+    backgroundColor: 'rgba(255,255,255,0.85)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   favBtnActive: { backgroundColor: Colors.red500 },
   favIcon: { fontSize: 15 },
   cardBody: { padding: 14 },
-  cardName: {
-    fontSize: 15,
-    fontFamily: Fonts.heading,
-    color: Colors.slate900,
-    marginBottom: 3,
-  },
-  cardLocation: {
-    fontSize: 12,
-    fontFamily: Fonts.body,
-    color: Colors.slate500,
-    marginBottom: 10,
-  },
-  cardFooter: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  cardPrice: {
-    fontSize: 15,
-    fontFamily: Fonts.heading,
-    color: Colors.slate900,
-  },
-  cardPriceSub: {
-    fontSize: 12,
-    fontFamily: Fonts.body,
-    color: Colors.slate400,
-  },
-  cardRooms: {
-    fontSize: 11,
-    fontFamily: Fonts.body,
-    color: Colors.slate400,
-    marginTop: 4,
-  },
-  uniGrid: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
+  cardName: { fontSize: 15, fontFamily: Fonts.heading, color: Colors.slate900, marginBottom: 3 },
+  cardLocation: { fontSize: 12, fontFamily: Fonts.body, color: Colors.slate500, marginBottom: 10 },
+  cardFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  cardPrice: { fontSize: 15, fontFamily: Fonts.heading, color: Colors.slate900 },
+  cardPriceSub: { fontSize: 12, fontFamily: Fonts.body, color: Colors.slate400 },
+  cardRooms: { fontSize: 11, fontFamily: Fonts.body, color: Colors.slate400, marginTop: 4 },
+  uniGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
   uniCard: {
     width: (width - 52) / 2,
     backgroundColor: Colors.white,
@@ -385,42 +262,23 @@ const styles = StyleSheet.create({
     height: 44,
     borderRadius: Radius.md,
     backgroundColor: Colors.blue100,
-    alignItems: "center",
-    justifyContent: "center",
+    alignItems: 'center',
+    justifyContent: 'center',
     marginBottom: 10,
   },
   uniShort: { fontSize: 12, fontFamily: Fonts.bodySemi, color: Colors.blue },
   uniName: { fontSize: 14, fontFamily: Fonts.heading, color: Colors.slate800 },
-  uniCity: {
-    fontSize: 12,
-    fontFamily: Fonts.body,
-    color: Colors.slate400,
-    marginTop: 2,
-  },
+  uniCity: { fontSize: 12, fontFamily: Fonts.body, color: Colors.slate400, marginTop: 2 },
   promoSection: {
     marginHorizontal: 20,
     height: 130,
     borderRadius: Radius.xl,
-    overflow: "hidden",
+    overflow: 'hidden',
     marginBottom: 16,
   },
-  promoOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(15,27,45,0.72)",
-  },
-  promoContent: { padding: 20, flex: 1, justifyContent: "center" },
-  promoLabel: {
-    fontSize: 10,
-    fontFamily: Fonts.bodySemi,
-    color: "#93C5FD",
-    letterSpacing: 1.5,
-    marginBottom: 4,
-  },
-  promoTitle: {
-    fontSize: 18,
-    fontFamily: Fonts.heading,
-    color: Colors.white,
-    marginBottom: 6,
-  },
-  promoAction: { fontSize: 13, fontFamily: Fonts.bodyMed, color: "#93C5FD" },
+  promoOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(15,27,45,0.72)' },
+  promoContent: { padding: 20, flex: 1, justifyContent: 'center' },
+  promoLabel: { fontSize: 10, fontFamily: Fonts.bodySemi, color: '#93C5FD', letterSpacing: 1.5, marginBottom: 4 },
+  promoTitle: { fontSize: 18, fontFamily: Fonts.heading, color: Colors.white, marginBottom: 6 },
+  promoAction: { fontSize: 13, fontFamily: Fonts.bodyMed, color: '#93C5FD' },
 });
