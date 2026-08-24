@@ -4,21 +4,55 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../../App';
 import { Colors, Fonts, Radius, Shadow } from '../theme';
+import { Ionicons } from '@expo/vector-icons';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Main'>;
 
 const sections = [
-  { label: 'Personal Information', icon: '👤', color: Colors.blue100, iconColor: Colors.blue },
-  { label: 'My Documents', icon: '📄', color: Colors.purple100, iconColor: Colors.purple },
-  { label: 'Payment Methods', icon: '💳', color: Colors.green100, iconColor: Colors.green600 },
-  { label: 'Notifications', icon: '🔔', color: Colors.amber100, iconColor: Colors.amber600 },
-  { label: 'Security', icon: '🔒', color: Colors.slate100, iconColor: Colors.slate600 },
-  { label: 'Help & Support', icon: '❓', color: '#E0F2FE', iconColor: '#0284C7' },
-  { label: 'Terms & Privacy', icon: '📋', color: Colors.slate100, iconColor: Colors.slate600 },
+  {
+    title: "Personal Information",
+    icon: "person-outline",
+    iconColor: "#1976D2",
+    iconBg: "#E3F2FD",
+  },
+  {
+    title: "My Documents",
+    icon: "document-text-outline",
+    iconColor: "#8E44AD",
+    iconBg: "#F3E5F5",
+  },
+  {
+    title: "Notifications",
+    icon: "notifications-outline",
+    iconColor: "#F4B400",
+    iconBg: "#FFF4CC",
+  },
+  {
+    title: "Security",
+    icon: "lock-closed-outline",
+    iconColor: "#4B5563",
+    iconBg: "#F1F5F9",
+  },
+  {
+    title: "Help & Support",
+    icon: "help-circle-outline",
+    iconColor: "#2196F3",
+    iconBg: "#E3F2FD",
+  },
+  {
+    title: "Terms & Privacy",
+    icon: "clipboard-outline",
+    iconColor: "#64748B",
+    iconBg: "#F1F5F9",
+  },
 ];
 
 export default function ProfileScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
+
+  const handleSettingPress = (title: string) => {
+    console.log(`${title} pressed`);
+  };
 
   return (
     <ScrollView
@@ -31,11 +65,17 @@ export default function ProfileScreen({ navigation }: Props) {
         <View style={styles.avatar}>
           <Text style={styles.avatarText}>SD</Text>
         </View>
+
         <Text style={styles.name}>Siyanda Dlamini</Text>
         <Text style={styles.uni}>University of Venda</Text>
         <Text style={styles.studentNo}>Student No. 2021012345</Text>
+
         <View style={styles.statsRow}>
-          {[{ label: 'Bookings', val: '2' }, { label: 'Saved', val: '4' }, { label: 'Active', val: '1' }].map((s) => (
+          {[
+            { label: 'Bookings', val: '2' },
+            { label: 'Saved', val: '4' },
+            { label: 'Active', val: '1' },
+          ].map((s) => (
             <View key={s.label} style={styles.statItem}>
               <Text style={styles.statVal}>{s.val}</Text>
               <Text style={styles.statLabel}>{s.label}</Text>
@@ -45,24 +85,51 @@ export default function ProfileScreen({ navigation }: Props) {
       </View>
 
       <View style={styles.menuSection}>
-        {sections.map(({ label, icon, color, iconColor }) => (
-          <TouchableOpacity key={label} style={styles.menuItem} activeOpacity={0.7}>
-            <View style={[styles.menuIcon, { backgroundColor: color }]}>
-              <Text style={styles.menuIconText}>{icon}</Text>
+        {/* Settings */}
+        {sections.map(({ title, icon, iconColor, iconBg }) => (
+          <TouchableOpacity
+            key={title}
+            style={styles.menuItem}
+            activeOpacity={0.7}
+            onPress={() => handleSettingPress(title)}
+          >
+            <View
+              style={[
+                styles.menuIcon,
+                { backgroundColor: iconBg },
+              ]}
+            >
+              <Ionicons
+                name={icon as keyof typeof Ionicons.glyphMap}
+                size={21}
+                color={iconColor}
+              />
             </View>
-            <Text style={styles.menuLabel}>{label}</Text>
-            <Text style={styles.menuChevron}>›</Text>
+
+            <Text style={styles.menuLabel}>{title}</Text>
+
+            <Ionicons
+              name="chevron-forward-outline"
+              size={20}
+              color={Colors.slate300}
+            />
           </TouchableOpacity>
         ))}
 
+        {/* LOG OUT - UNCHANGED */}
         <TouchableOpacity
           style={styles.logoutItem}
           activeOpacity={0.7}
           onPress={() => (navigation as any).replace('Login')}
         >
-          <View style={[styles.menuIcon, { backgroundColor: Colors.red100 }]}>
-            <Text style={styles.menuIconText}>🚪</Text>
-          </View>
+          <Text style={styles.headerIconText}>
+            <Ionicons
+              name="log-out-outline"
+              size={24}
+              color="#cc4646"
+            />
+          </Text>
+
           <Text style={styles.logoutLabel}>Log Out</Text>
         </TouchableOpacity>
       </View>
@@ -71,13 +138,18 @@ export default function ProfileScreen({ navigation }: Props) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.background },
+  container: {
+    flex: 1,
+    backgroundColor: Colors.background,
+  },
+
   header: {
     backgroundColor: Colors.navy,
     paddingHorizontal: 24,
     paddingBottom: 28,
     alignItems: "center",
   },
+
   avatar: {
     width: 72,
     height: 72,
@@ -87,41 +159,83 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginBottom: 12,
   },
-  avatarText: { color: Colors.white, fontSize: 26, fontFamily: Fonts.heading },
+
+  avatarText: {
+    color: Colors.white,
+    fontSize: 26,
+    fontFamily: Fonts.heading,
+  },
+
   name: {
     color: Colors.white,
     fontSize: 22,
     fontFamily: Fonts.heading,
     marginBottom: 4,
   },
+
   uni: {
     color: Colors.slate300,
     fontSize: 14,
     fontFamily: Fonts.body,
     marginBottom: 2,
   },
+
   studentNo: {
     color: Colors.slate400,
     fontSize: 12,
     fontFamily: Fonts.body,
     marginBottom: 20,
   },
-  statsRow: { flexDirection: "row", gap: 0 },
+
+  statsRow: {
+    flexDirection: "row",
+    gap: 9,
+    borderRadius: Radius.xl,
+    overflow: "hidden",
+  },
+
+
   statItem: {
     flex: 1,
     alignItems: "center",
     backgroundColor: "rgba(255,255,255,0.1)",
     paddingVertical: 12,
-    borderRadius: 0,
+    borderRadius: Radius.xl,
+    overflow: "hidden",
+},
+
+  headerIconText: {
+    fontSize: 18,
   },
-  statVal: { color: Colors.white, fontSize: 20, fontFamily: Fonts.heading },
+
+  notifDot: {
+    position: "absolute",
+    top: 8,
+    right: 8,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: Colors.red500,
+  },
+
+  statVal: {
+    color: Colors.white,
+    fontSize: 20,
+    fontFamily: Fonts.heading,
+  },
+
   statLabel: {
     color: Colors.slate400,
     fontSize: 11,
     fontFamily: Fonts.body,
     marginTop: 2,
   },
-  menuSection: { padding: 16, gap: 8 },
+
+  menuSection: {
+    padding: 16,
+    gap: 8,
+  },
+
   menuItem: {
     flexDirection: "row",
     alignItems: "center",
@@ -134,6 +248,7 @@ const styles = StyleSheet.create({
     ...Shadow.sm,
     gap: 12,
   },
+
   menuIcon: {
     width: 40,
     height: 40,
@@ -141,14 +256,14 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  menuIconText: { fontSize: 18 },
+
   menuLabel: {
     flex: 1,
     fontSize: 15,
     fontFamily: Fonts.bodyMed,
     color: Colors.slate800,
   },
-  menuChevron: { fontSize: 20, color: Colors.slate300 },
+
   logoutItem: {
     flexDirection: "row",
     alignItems: "center",
@@ -161,6 +276,7 @@ const styles = StyleSheet.create({
     marginTop: 4,
     gap: 12,
   },
+
   logoutLabel: {
     flex: 1,
     fontSize: 15,
