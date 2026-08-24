@@ -63,142 +63,189 @@ export default function ExploreScreen({ navigation }: Props) {
       </View>
 
       {/* Filter panel */}
-{showFilters && (
-  <View style={styles.filterPanel}>
-    <Text style={styles.filterLabel}>
-      Max price: R{priceMax.toLocaleString()}/month
-    </Text>
+      {showFilters && (
+        <View style={styles.filterPanel}>
+          <Text style={styles.filterLabel}>
+            Max price: R{priceMax.toLocaleString()}/month
+          </Text>
 
-{/* Price Slider */}
-<View style={styles.sliderContainer}>
+          {/* Price Slider */}
+          <View style={styles.sliderContainer}>
+            {/* Thick blue track */}
+            <View
+              style={[
+                styles.sliderTrack,
+                {
+                  width: `${((priceMax - 1000) / 9000) * 100}%`,
+                },
+              ]}
+            />
 
-  {/* Thick blue track */}
-  <View
-    style={[
-      styles.sliderTrack,
-      {
-        width: `${((priceMax - 1000) / 9000) * 100}%`,
-      },
-    ]}
-  />
+            {/* Slider for dragging */}
+            <Slider
+              style={styles.priceSlider}
+              minimumValue={1000}
+              maximumValue={10000}
+              value={priceMax}
+              step={500}
+              minimumTrackTintColor="transparent"
+              maximumTrackTintColor="#E5E7EB"
+              thumbTintColor="#2563EB"
+              onValueChange={(value) => setPriceMax(value)}
+            />
+          </View>
 
-  {/* Slider for dragging */}
-  <Slider
-    style={styles.priceSlider}
-    minimumValue={1000}
-    maximumValue={10000}
-    value={priceMax}
-    step={500}
-    minimumTrackTintColor="transparent"
-    maximumTrackTintColor="#E5E7EB"
-    thumbTintColor="#2563EB"
-    onValueChange={(value) => setPriceMax(value)}
-  />
+          {/* Price labels */}
+          <View style={styles.priceRow}>
+            <Text style={styles.priceHint}>R1,000</Text>
+            <Text style={styles.priceHint}>R10,000</Text>
+          </View>
 
-</View>
+          <Text style={styles.filterLabel}>Amenities</Text>
 
-    {/* Price labels */}
-    <View style={styles.priceRow}>
-      <Text style={styles.priceHint}>R1,000</Text>
-      <Text style={styles.priceHint}>R10,000</Text>
-    </View>
+          <View style={styles.amenityRow}>
+            {amenityOptions.map((a) => (
+              <TouchableOpacity
+                key={a}
+                onPress={() => toggleAmenity(a)}
+                style={[
+                  styles.amenityChip,
+                  selectedAmenities.includes(a) && styles.amenityChipActive,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.amenityText,
+                    selectedAmenities.includes(a) && styles.amenityTextActive,
+                  ]}
+                >
+                  {a}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
 
-    <Text style={styles.filterLabel}>Amenities</Text>
+          <View style={styles.filterActions}>
+            <Btn
+              variant="secondary"
+              onPress={() => {
+                setPriceMax(10000);
+                setSelectedAmenities([]);
+              }}
+              style={styles.filterActionBtn}
+            >
+              Clear all
+            </Btn>
 
-    <View style={styles.amenityRow}>
-      {amenityOptions.map((a) => (
-        <TouchableOpacity
-          key={a}
-          onPress={() => toggleAmenity(a)}
+            <Btn
+              onPress={() => setShowFilters(false)}
+              style={styles.filterActionBtn}
+            >
+              Apply
+            </Btn>
+          </View>
+        </View>
+      )}
+      {/* Sort chips */}
+      <View style={styles.sortContainer}>
+  <ScrollView
+    horizontal
+    showsHorizontalScrollIndicator={false}
+    contentContainerStyle={styles.sortRow}
+  >
+    <Text style={styles.sortLabel}>Sort: </Text>
+
+    {sortOptions.map((s) => (
+      <TouchableOpacity
+        key={s}
+        onPress={() => setSort(s)}
+        style={[
+          styles.sortChip,
+          sort === s && styles.sortChipActive,
+        ]}
+      >
+        <Text
           style={[
-            styles.amenityChip,
-            selectedAmenities.includes(a) &&
-              styles.amenityChipActive,
+            styles.sortChipText,
+            sort === s && styles.sortChipTextActive,
           ]}
         >
-          <Text
-            style={[
-              styles.amenityText,
-              selectedAmenities.includes(a) &&
-                styles.amenityTextActive,
-            ]}
-          >
-            {a}
-          </Text>
-        </TouchableOpacity>
-      ))}
-    </View>
-
-    <View style={styles.filterActions}>
-      <Btn
-        variant="secondary"
-        onPress={() => {
-          setPriceMax(10000);
-          setSelectedAmenities([]);
-        }}
-        style={styles.filterActionBtn}
-      >
-        Clear all
-      </Btn>
-
-      <Btn
-        onPress={() => setShowFilters(false)}
-        style={styles.filterActionBtn}
-      >
-        Apply
-      </Btn>
-    </View>
-  </View>
-)}
-      {/* Sort chips */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.sortRow}>
-        <Text style={styles.sortLabel}>Sort: </Text>
-        {sortOptions.map((s) => (
-          <TouchableOpacity key={s} onPress={() => setSort(s)} style={[styles.sortChip, sort === s && styles.sortChipActive]}>
-            <Text style={[styles.sortChipText, sort === s && styles.sortChipTextActive]}>{s}</Text>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
+          {s}
+        </Text>
+      </TouchableOpacity>
+    ))}
+  </ScrollView>
+</View>
 
       <FlatList
         data={filtered}
         keyExtractor={(item) => item.id}
         contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 100 }}
-        ListHeaderComponent={<Text style={styles.resultsCount}>{filtered.length} properties found</Text>}
+        ListHeaderComponent={
+          <Text style={styles.resultsCount}>
+            {filtered.length} properties found
+          </Text>
+        }
         renderItem={({ item }) => (
           <TouchableOpacity
             style={styles.card}
             activeOpacity={0.85}
-            onPress={() => (navigation as any).navigate('Property', { property: item })}
+            onPress={() =>
+              (navigation as any).navigate("Property", { property: item })
+            }
           >
             <View style={styles.cardImageWrapper}>
-              <Image source={{ uri: item.images[0] }} style={styles.cardImage} contentFit="cover" />
+              <Image
+                source={{ uri: item.images[0] }}
+                style={styles.cardImage}
+                contentFit="cover"
+              />
               <View style={styles.cardBadges}>
                 {item.verified && <VerifiedBadge />}
-                {item.available > 0 && <Badge label={`${item.available} rooms`} variant="green" />}
+                {item.available > 0 && (
+                  <Badge label={`${item.available} rooms`} variant="green" />
+                )}
               </View>
               <TouchableOpacity
-                style={[styles.favBtn, favorites.includes(item.id) && styles.favBtnActive]}
+                style={[
+                  styles.favBtn,
+                  favorites.includes(item.id) && styles.favBtnActive,
+                ]}
                 onPress={() => toggleFav(item.id)}
               >
-                <Text>{favorites.includes(item.id) ? <Ionicons name="heart" size={24} color="#fffefe"/> : <Ionicons name="heart-outline" size={24} color= "#000" />}</Text>
+                <Text>
+                  {favorites.includes(item.id) ? (
+                    <Ionicons name="heart" size={24} color="#fffefe" />
+                  ) : (
+                    <Ionicons name="heart-outline" size={24} color="#000" />
+                  )}
+                </Text>
               </TouchableOpacity>
             </View>
             <View style={styles.cardBody}>
               <View style={styles.cardTop}>
-                <Text style={styles.cardName} numberOfLines={1}>{item.name}</Text>
+                <Text style={styles.cardName} numberOfLines={1}>
+                  {item.name}
+                </Text>
                 <StarRating rating={item.rating} />
               </View>
-              <Text style={styles.cardLocation}>{item.city} · {item.distance} km from campus</Text>
+              <Text style={styles.cardLocation}>
+                {item.city} · {item.distance} km from campus
+              </Text>
               <View style={styles.tagsRow}>
-                {item.tags.slice(0, 3).map((t) => <Badge key={t} label={t} variant="gray" />)}
+                {item.tags.slice(0, 3).map((t) => (
+                  <Badge key={t} label={t} variant="gray" />
+                ))}
               </View>
               <View style={styles.cardFooter}>
                 <Text style={styles.cardPrice}>
-                  R{item.price.toLocaleString()}<Text style={styles.cardPriceSub}>/month</Text>
+                  R{item.price.toLocaleString()}
+                  <Text style={styles.cardPriceSub}>/month</Text>
                 </Text>
                 <Btn
-                  onPress={() => (navigation as any).navigate('Property', { property: item })}
+                  onPress={() =>
+                    (navigation as any).navigate("Property", { property: item })
+                  }
                   style={styles.viewBtn}
                 >
                   View →
@@ -222,32 +269,32 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: Colors.slate100,
   },
-sliderContainer: {
-  width: "100%",
-  height: 40,
-  justifyContent: "center",
-  position: "relative",
-},
+  sliderContainer: {
+    width: "100%",
+    height: 40,
+    justifyContent: "center",
+    position: "relative",
+  },
 
-sliderTrack: {
-  position: "absolute",
-  left: 0,
-  height: 8,
-  backgroundColor: "#2563EB",
-  borderRadius: 10,
-},
+  sliderTrack: {
+    position: "absolute",
+    left: 0,
+    height: 8,
+    backgroundColor: "#2563EB",
+    borderRadius: 10,
+  },
 
-priceSlider: {
-  width: "100%",
-  height: 40,
-  marginTop: 4,
-  marginBottom: 2,
-},
+  priceSlider: {
+    width: "100%",
+    height: 40,
+    marginTop: 4,
+    marginBottom: 2,
+  },
 
-slider: {
-  width: "100%",
-  height: 40,
-},
+  slider: {
+    width: "100%",
+    height: 40,
+  },
   searchBar: {
     flex: 1,
     flexDirection: "row",
@@ -279,7 +326,6 @@ slider: {
     fontSize: 14,
     fontFamily: Fonts.body,
     color: Colors.slate800,
-    
   },
   filterBtn: {
     width: 44,
@@ -325,29 +371,35 @@ slider: {
   amenityTextActive: { color: Colors.white },
   filterActions: { flexDirection: "row", gap: 10 },
   filterActionBtn: { flex: 1, paddingVertical: 10 },
-  sortRow: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    backgroundColor: Colors.white,
-    borderBottomWidth: 4,
-    borderBottomColor: Colors.slate100,
-    gap: 8,
-    alignItems: "center",
-  },
+  sortContainer: {
+  height: 48,
+  backgroundColor: Colors.white,
+  borderBottomWidth: 4,
+  borderBottomColor: Colors.slate100,
+},
+
+sortRow: {
+  paddingHorizontal: 16,
+  alignItems: "center",
+  gap: 8,
+  minHeight: 44,
+},
   sortLabel: { fontSize: 12, color: Colors.slate400, fontFamily: Fonts.body },
   sortChip: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: Radius.full,
-    backgroundColor: Colors.slate100,
+  paddingHorizontal: 12,
+  paddingVertical: 7,
+  borderRadius: Radius.full,
+  backgroundColor: Colors.slate100,
+  justifyContent: "center",
+  alignItems: "center",
   },
   sortChipActive: { backgroundColor: Colors.slate900 },
   sortChipText: {
     fontSize: 12,
-    fontFamily: Fonts.bodyMed,
     color: Colors.slate600,
+    lineHeight: 16,
   },
-  sortChipTextActive: { color: Colors.white },
+  sortChipTextActive: { color: Colors.white, },
   resultsCount: {
     fontSize: 12,
     color: Colors.slate400,
