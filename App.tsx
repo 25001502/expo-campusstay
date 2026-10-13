@@ -83,9 +83,18 @@ function MainTabs() {
     },
 
     tabBarLabelStyle: {
-      fontSize: 10,
+      fontSize: 9,
       fontFamily: Fonts.bodyMed,
     },
+    tabBarLabel: ({ color, children }) => (
+      <Text
+        numberOfLines={1}
+        maxFontSizeMultiplier={1.2}
+        style={{ color, fontSize: 9, fontFamily: Fonts.bodyMed }}
+      >
+        {children}
+      </Text>
+    ),
   }}
 >
   <Tab.Screen
