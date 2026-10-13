@@ -1,2 +1,8 @@
 /node_modules
+dist/
+.expo/
 .expo/dev/logs/start.log
+*.json
+*.json
+app.json
+app.json

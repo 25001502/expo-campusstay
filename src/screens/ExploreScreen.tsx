@@ -1,258 +1,216 @@
-import React, { useState } from 'react';
-import {
-  View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput, ScrollView,
-} from 'react-native';
-import Slider from "@react-native-community/slider";
-import { Image } from 'expo-image';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { RootStackParamList } from '../../App';
-import { Colors, Fonts, Radius, Shadow } from '../theme';
-import { Badge, VerifiedBadge, StarRating, Btn } from '../components/UI';
-import { properties } from '../data';
-import { installFormDataPatch } from 'expo/build/winter/FormData';
+import React, { useMemo, useState } from 'react';
+import { FlatList, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, useWindowDimensions, View } from 'react-native';
+import Slider from '@react-native-community/slider';
 import { Ionicons } from '@expo/vector-icons';
-type Props = NativeStackScreenProps<RootStackParamList, 'Main'>;
+import { StatusBar } from 'expo-status-bar';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import type { StudentTabScreenProps } from '../navigation/types';
+import { Colors, Fonts, Radius, Spacing, TextColors } from '../theme';
+import { Btn, EmptyState, IconButton } from '../components/UI';
+import { PropertyCard } from '../components/PropertyCard';
+import { properties, universities } from '../data';
+import {
+  createDefaultDiscoveryFilters,
+  DEFAULT_MAXIMUM_PRICE,
+  filterAndSortProperties,
+  type DiscoverySort,
+} from '../discovery';
+import { useFavorites } from '../state/FavoritesContext';
+
+type Props = StudentTabScreenProps<'Explore'>;
 
 const amenityOptions = ['Wi-Fi', 'Security', 'Parking', 'Laundry', 'Study Area', 'Kitchen', 'Gym'];
-const sortOptions = ['Recommended', 'Price: Low', 'Price: High', 'Rating', 'Distance'];
+const sortOptions: { value: DiscoverySort; label: string }[] = [
+  { value: 'recommended', label: 'Recommended' },
+  { value: 'price-low', label: 'Price: Low' },
+  { value: 'price-high', label: 'Price: High' },
+  { value: 'rating', label: 'Highest Rated' },
+  { value: 'distance', label: 'Nearest' },
+];
 
-export default function ExploreScreen({ navigation }: Props) {
+export default function ExploreScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
-  const [query, setQuery] = useState('');
+  const { height } = useWindowDimensions();
+  const { isFavorite, toggleFavorite } = useFavorites();
+  const defaults = createDefaultDiscoveryFilters();
   const [showFilters, setShowFilters] = useState(false);
-  const [sort, setSort] = useState('Recommended');
-  const [priceMax, setPriceMax] = useState(10000);
-  const [selectedAmenities, setSelectedAmenities] = useState<string[]>([]);
-  const [favorites, setFavorites] = useState<string[]>(['p1', 'p3']);
+  const [sort, setSort] = useState<DiscoverySort>(defaults.sort);
+  const [maximumPrice, setMaximumPrice] = useState(defaults.maximumPrice);
+  const [selectedAmenities, setSelectedAmenities] = useState<string[]>(defaults.amenities);
+  const query = route.params?.query ?? defaults.query;
+  const universityId = route.params?.universityId;
+  const quickFilter = route.params?.quickFilter;
+  const updateRouteContext = (updates: Partial<NonNullable<Props['route']['params']>>) => {
+    navigation.setParams({ ...route.params, ...updates });
+  };
 
-  const toggleFav = (id: string) =>
-    setFavorites((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  const filtered = useMemo(() => filterAndSortProperties(properties, {
+    query,
+    maximumPrice,
+    amenities: selectedAmenities,
+    universityId,
+    quickFilter,
+    sort,
+  }), [maximumPrice, query, quickFilter, selectedAmenities, sort, universityId]);
 
-  const toggleAmenity = (a: string) =>
-    setSelectedAmenities((prev) => (prev.includes(a) ? prev.filter((x) => x !== a) : [...prev, a]));
+  const selectedUniversity = universities.find((university) => university.id === universityId);
+  const activeFilterCount = selectedAmenities.length
+    + (maximumPrice < DEFAULT_MAXIMUM_PRICE ? 1 : 0)
+    + (universityId ? 1 : 0)
+    + (quickFilter ? 1 : 0);
 
-  const filtered = properties.filter((p) => {
-    const q = query.toLowerCase();
-    return (!q || p.name.toLowerCase().includes(q) || p.city.toLowerCase().includes(q)) && p.price <= priceMax;
-  });
+  const toggleAmenity = (amenity: string) => {
+    setSelectedAmenities((current) => current.includes(amenity)
+      ? current.filter((value) => value !== amenity)
+      : [...current, amenity]);
+  };
+
+  const clearFilters = () => {
+    const next = createDefaultDiscoveryFilters();
+    navigation.setParams({ query: undefined, universityId: undefined, quickFilter: undefined });
+    setMaximumPrice(next.maximumPrice);
+    setSelectedAmenities(next.amenities);
+    setSort(next.sort);
+  };
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
+      <StatusBar style="dark" />
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Explore</Text>
+        <Text accessibilityRole="header" style={styles.headerTitle}>Explore</Text>
+        {(query.trim() || activeFilterCount > 0 || sort !== 'recommended') ? (
+          <TouchableOpacity accessibilityRole="button" onPress={clearFilters} style={styles.headerClear}>
+            <Text style={styles.headerClearText}>Clear all</Text>
+          </TouchableOpacity>
+        ) : null}
       </View>
-      {/* Search bar */}
+
       <View style={styles.searchRow}>
         <View style={styles.searchBar}>
-          <Ionicons name="search" size={20} color={Colors.slate400} />
+          <Ionicons name="search" size={20} color={Colors.slate500} importantForAccessibility="no-hide-descendants" />
           <TextInput
+            accessibilityLabel="Search accommodation"
             style={styles.searchInput}
             placeholder="University, city or property..."
-            placeholderTextColor={Colors.slate400}
+            placeholderTextColor={Colors.slate500}
             value={query}
-            onChangeText={setQuery}
+            onChangeText={(value) => updateRouteContext({ query: value })}
+            returnKeyType="search"
           />
         </View>
-        <TouchableOpacity
-          style={[styles.filterBtn, showFilters && styles.filterBtnActive]}
-          onPress={() => setShowFilters(!showFilters)}
-        >
-          <Ionicons name="filter" size={20} color={Colors.slate400} />
-        </TouchableOpacity>
+        <IconButton
+          icon="options-outline"
+          label={activeFilterCount ? `Filters, ${activeFilterCount} active` : 'Filters'}
+          hint={showFilters ? 'Hides filter options' : 'Shows filter options'}
+          selected={showFilters || activeFilterCount > 0}
+          selectedColor={Colors.white}
+          onPress={() => setShowFilters((visible) => !visible)}
+          style={styles.filterButton}
+        />
       </View>
 
-      {/* Filter panel */}
-      {showFilters && (
-        <View style={styles.filterPanel}>
-          <Text style={styles.filterLabel}>
-            Max price: R{priceMax.toLocaleString()}/month
-          </Text>
-
-          {/* Price Slider */}
-          <View style={styles.sliderContainer}>
-            {/* Thick blue track */}
-            <View
-              style={[
-                styles.sliderTrack,
-                {
-                  width: `${((priceMax - 1000) / 9000) * 100}%`,
-                },
-              ]}
-            />
-
-            {/* Slider for dragging */}
-            <Slider
-              style={styles.priceSlider}
-              minimumValue={1000}
-              maximumValue={10000}
-              value={priceMax}
-              step={500}
-              minimumTrackTintColor="transparent"
-              maximumTrackTintColor="#E5E7EB"
-              thumbTintColor="#2563EB"
-              onValueChange={(value) => setPriceMax(value)}
-            />
-          </View>
-
-          {/* Price labels */}
-          <View style={styles.priceRow}>
-            <Text style={styles.priceHint}>R1,000</Text>
-            <Text style={styles.priceHint}>R10,000</Text>
-          </View>
-
-          <Text style={styles.filterLabel}>Amenities</Text>
-
-          <View style={styles.amenityRow}>
-            {amenityOptions.map((a) => (
-              <TouchableOpacity
-                key={a}
-                onPress={() => toggleAmenity(a)}
-                style={[
-                  styles.amenityChip,
-                  selectedAmenities.includes(a) && styles.amenityChipActive,
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.amenityText,
-                    selectedAmenities.includes(a) && styles.amenityTextActive,
-                  ]}
-                >
-                  {a}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-
-          <View style={styles.filterActions}>
-            <Btn
-              variant="secondary"
-              onPress={() => {
-                setPriceMax(10000);
-                setSelectedAmenities([]);
-              }}
-              style={styles.filterActionBtn}
-            >
-              Clear all
-            </Btn>
-
-            <Btn
-              onPress={() => setShowFilters(false)}
-              style={styles.filterActionBtn}
-            >
-              Apply
-            </Btn>
-          </View>
+      {(selectedUniversity || quickFilter) ? (
+        <View style={styles.contextRow}>
+          {selectedUniversity ? (
+            <View style={styles.contextChip}>
+              <Text style={styles.contextText}>{selectedUniversity.short}</Text>
+              <IconButton icon="close" label={`Remove ${selectedUniversity.name} filter`} iconSize={16} onPress={() => updateRouteContext({ universityId: undefined })} style={styles.contextRemove} />
+            </View>
+          ) : null}
+          {quickFilter ? (
+            <View style={styles.contextChip}>
+              <Text style={styles.contextText}>{quickFilter}</Text>
+              <IconButton icon="close" label={`Remove ${quickFilter} filter`} iconSize={16} onPress={() => updateRouteContext({ quickFilter: undefined })} style={styles.contextRemove} />
+            </View>
+          ) : null}
         </View>
-      )}
-      {/* Sort chips */}
-      <View style={styles.sortContainer}>
-  <ScrollView
-    horizontal
-    showsHorizontalScrollIndicator={false}
-    contentContainerStyle={styles.sortRow}
-  >
-    <Text style={styles.sortLabel}>Sort: </Text>
+      ) : null}
 
-    {sortOptions.map((s) => (
-      <TouchableOpacity
-        key={s}
-        onPress={() => setSort(s)}
-        style={[
-          styles.sortChip,
-          sort === s && styles.sortChipActive,
-        ]}
-      >
-        <Text
-          style={[
-            styles.sortChipText,
-            sort === s && styles.sortChipTextActive,
-          ]}
-        >
-          {s}
-        </Text>
-      </TouchableOpacity>
-    ))}
-  </ScrollView>
-</View>
+      {showFilters ? (
+        <ScrollView style={{ maxHeight: Math.max(240, height * 0.55) }} contentContainerStyle={styles.filterPanel} keyboardShouldPersistTaps="handled" nestedScrollEnabled>
+          <Text style={styles.filterLabel}>Maximum price: R{maximumPrice.toLocaleString()}/month</Text>
+          <Slider
+            accessibilityLabel="Maximum monthly price"
+            accessibilityValue={{ min: 1000, max: DEFAULT_MAXIMUM_PRICE, now: maximumPrice, text: `R${maximumPrice.toLocaleString()} per month` }}
+            style={styles.priceSlider}
+            minimumValue={1000}
+            maximumValue={DEFAULT_MAXIMUM_PRICE}
+            value={maximumPrice}
+            step={500}
+            minimumTrackTintColor={Colors.blue}
+            maximumTrackTintColor={Colors.slate200}
+            thumbTintColor={Colors.blue}
+            onValueChange={setMaximumPrice}
+          />
+          <View style={styles.priceRow}><Text style={styles.priceHint}>R1,000</Text><Text style={styles.priceHint}>R10,000</Text></View>
+
+          <View>
+            <Text style={styles.filterLabel}>Amenities</Text>
+            <Text style={styles.filterHelp}>Results must include all selected amenities.</Text>
+          </View>
+          <View style={styles.amenityRow}>
+            {amenityOptions.map((amenity) => {
+              const selected = selectedAmenities.includes(amenity);
+              return (
+                <TouchableOpacity
+                  key={amenity}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected }}
+                  onPress={() => toggleAmenity(amenity)}
+                  style={[styles.amenityChip, selected && styles.amenityChipActive]}
+                >
+                  <Text style={[styles.amenityText, selected && styles.amenityTextActive]}>{amenity}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+          <View style={styles.filterActions}>
+            <Btn variant="secondary" onPress={clearFilters} style={styles.filterActionButton}>Clear Filters</Btn>
+            <Btn onPress={() => setShowFilters(false)} style={styles.filterActionButton}>{`Show ${filtered.length}`}</Btn>
+          </View>
+        </ScrollView>
+      ) : null}
+
+      <View style={styles.sortContainer}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.sortRow}>
+          <Text style={styles.sortLabel}>Sort:</Text>
+          {sortOptions.map((option) => (
+            <TouchableOpacity
+              key={option.value}
+              accessibilityRole="button"
+              accessibilityState={{ selected: sort === option.value }}
+              onPress={() => setSort(option.value)}
+              style={[styles.sortChip, sort === option.value && styles.sortChipActive]}
+            >
+              <Text style={[styles.sortChipText, sort === option.value && styles.sortChipTextActive]}>{option.label}</Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      </View>
 
       <FlatList
         data={filtered}
         keyExtractor={(item) => item.id}
-        contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 100 }}
-        ListHeaderComponent={
-          <Text style={styles.resultsCount}>
-            {filtered.length} properties found
-          </Text>
+        keyboardShouldPersistTaps="handled"
+        contentContainerStyle={[styles.list, !filtered.length && styles.emptyList]}
+        ListHeaderComponent={<Text accessibilityLiveRegion="polite" style={styles.resultsCount}>{filtered.length} {filtered.length === 1 ? 'property' : 'properties'} found</Text>}
+        ListEmptyComponent={
+          <EmptyState
+            icon={<Ionicons name="search-outline" size={42} color={Colors.slate500} />}
+            title="No accommodation found"
+            description="Try a broader search, a higher price, or fewer amenities."
+            actionLabel="Clear Filters"
+            onAction={clearFilters}
+          />
         }
         renderItem={({ item }) => (
-          <TouchableOpacity
-            style={styles.card}
-            activeOpacity={0.85}
-            onPress={() =>
-              (navigation as any).navigate("Property", { property: item })
-            }
-          >
-            <View style={styles.cardImageWrapper}>
-              <Image
-                source={{ uri: item.images[0] }}
-                style={styles.cardImage}
-                contentFit="cover"
-              />
-              <View style={styles.cardBadges}>
-                {item.verified && <VerifiedBadge />}
-                {item.available > 0 && (
-                  <Badge label={`${item.available} rooms`} variant="green" />
-                )}
-              </View>
-              <TouchableOpacity
-                style={[
-                  styles.favBtn,
-                  favorites.includes(item.id) && styles.favBtnActive,
-                ]}
-                onPress={() => toggleFav(item.id)}
-              >
-                <Text>
-                  {favorites.includes(item.id) ? (
-                    <Ionicons name="heart" size={24} color="#fffefe" />
-                  ) : (
-                    <Ionicons name="heart-outline" size={24} color="#000" />
-                  )}
-                </Text>
-              </TouchableOpacity>
-            </View>
-            <View style={styles.cardBody}>
-              <View style={styles.cardTop}>
-                <Text style={styles.cardName} numberOfLines={1}>
-                  {item.name}
-                </Text>
-                <StarRating rating={item.rating} />
-              </View>
-              <Text style={styles.cardLocation}>
-                {item.city} · {item.distance} km from campus
-              </Text>
-              <View style={styles.tagsRow}>
-                {item.tags.slice(0, 3).map((t) => (
-                  <Badge key={t} label={t} variant="gray" />
-                ))}
-              </View>
-              <View style={styles.cardFooter}>
-                <Text style={styles.cardPrice}>
-                  R{item.price.toLocaleString()}
-                  <Text style={styles.cardPriceSub}>/month</Text>
-                </Text>
-                <Btn
-                  onPress={() =>
-                    (navigation as any).navigate("Property", { property: item })
-                  }
-                  style={styles.viewBtn}
-                >
-                  View →
-                </Btn>
-              </View>
-            </View>
-          </TouchableOpacity>
+          <PropertyCard
+            variant="list"
+            property={item}
+            favorite={isFavorite(item.id)}
+            onToggleFavorite={() => toggleFavorite(item.id)}
+            onOpen={() => navigation.navigate('Property', { property: item })}
+          />
         )}
       />
     </View>
@@ -261,212 +219,39 @@ export default function ExploreScreen({ navigation }: Props) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
-  searchRow: {
-    flexDirection: "row",
-    gap: 10,
-    padding: 16,
-    backgroundColor: Colors.white,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.slate100,
-  },
-  sliderContainer: {
-    width: "100%",
-    height: 40,
-    justifyContent: "center",
-    position: "relative",
-  },
-
-  sliderTrack: {
-    position: "absolute",
-    left: 0,
-    height: 8,
-    backgroundColor: "#2563EB",
-    borderRadius: 10,
-  },
-
-  priceSlider: {
-    width: "100%",
-    height: 40,
-    marginTop: 4,
-    marginBottom: 2,
-  },
-
-  slider: {
-    width: "100%",
-    height: 40,
-  },
-  searchBar: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: Colors.slate100,
-    borderRadius: Radius.lg,
-    paddingHorizontal: 12,
-    gap: 8,
-  },
-  headerTitle: {
-    fontSize: 24,
-    fontFamily: Fonts.heading,
-    color: Colors.slate900,
-  },
-  header: {
-    backgroundColor: Colors.white,
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    borderBottomWidth: 0,
-    borderBottomColor: Colors.slate100,
-  },
-  searchIcon: { fontSize: 15 },
-  searchInput: {
-    flex: 1,
-    height: 44,
-    fontSize: 14,
-    fontFamily: Fonts.body,
-    color: Colors.slate800,
-  },
-  filterBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: Radius.lg,
-    borderWidth: 1,
-    borderColor: Colors.slate200,
-    backgroundColor: Colors.white,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  filterBtnActive: { backgroundColor: Colors.blue, borderColor: Colors.blue },
-  filterBtnText: { fontSize: 18 },
-  filterPanel: {
-    backgroundColor: Colors.white,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.slate100,
-    padding: 16,
-    gap: 10,
-  },
-  filterLabel: {
-    fontSize: 13,
-    fontFamily: Fonts.bodySemi,
-    color: Colors.slate700,
-  },
-  priceRow: { flexDirection: "row", justifyContent: "space-between" },
-  priceHint: { fontSize: 11, color: Colors.slate400 },
-  amenityRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  amenityChip: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: Radius.full,
-    borderWidth: 1,
-    borderColor: Colors.slate200,
-    backgroundColor: Colors.white,
-  },
+  header: { minHeight: 60, backgroundColor: Colors.white, paddingHorizontal: Spacing.xl, paddingVertical: 10, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: Spacing.sm },
+  headerTitle: { fontSize: 24, lineHeight: 31, fontFamily: Fonts.heading, color: TextColors.primary },
+  headerClear: { minHeight: 44, justifyContent: 'center', paddingHorizontal: Spacing.sm },
+  headerClearText: { fontSize: 13, fontFamily: Fonts.bodyMed, color: TextColors.link },
+  searchRow: { flexDirection: 'row', gap: 10, paddingHorizontal: Spacing.lg, paddingBottom: Spacing.lg, backgroundColor: Colors.white, borderBottomWidth: 1, borderBottomColor: Colors.slate100 },
+  searchBar: { flex: 1, minHeight: 48, flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.slate100, borderRadius: Radius.lg, paddingHorizontal: Spacing.md, gap: Spacing.sm },
+  searchInput: { flex: 1, minWidth: 0, minHeight: 48, fontSize: 14, lineHeight: 20, fontFamily: Fonts.body, color: TextColors.primary },
+  filterButton: { width: 48, height: 48, borderRadius: Radius.lg, borderWidth: 1, borderColor: Colors.slate200 },
+  contextRow: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm, paddingHorizontal: Spacing.lg, paddingVertical: Spacing.sm, backgroundColor: Colors.white },
+  contextChip: { minHeight: 44, flexDirection: 'row', alignItems: 'center', paddingLeft: Spacing.md, borderRadius: Radius.full, backgroundColor: Colors.blue100 },
+  contextText: { fontSize: 13, fontFamily: Fonts.bodyMed, color: TextColors.link },
+  contextRemove: { width: 44, height: 44, minWidth: 44, minHeight: 44 },
+  filterPanel: { backgroundColor: Colors.white, borderBottomWidth: 1, borderBottomColor: Colors.slate100, padding: Spacing.lg, gap: 10 },
+  filterLabel: { fontSize: 13, lineHeight: 18, fontFamily: Fonts.bodySemi, color: TextColors.secondary },
+  filterHelp: { fontSize: 12, lineHeight: 17, fontFamily: Fonts.body, color: TextColors.muted, marginTop: 2 },
+  priceSlider: { width: '100%', height: 44 },
+  priceRow: { flexDirection: 'row', justifyContent: 'space-between' },
+  priceHint: { fontSize: 11, color: TextColors.muted },
+  amenityRow: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm },
+  amenityChip: { minHeight: 44, justifyContent: 'center', paddingHorizontal: Spacing.md, borderRadius: Radius.full, borderWidth: 1, borderColor: Colors.slate200, backgroundColor: Colors.white },
   amenityChipActive: { backgroundColor: Colors.blue, borderColor: Colors.blue },
-  amenityText: {
-    fontSize: 12,
-    fontFamily: Fonts.bodyMed,
-    color: Colors.slate600,
-  },
+  amenityText: { fontSize: 12, fontFamily: Fonts.bodyMed, color: TextColors.secondary },
   amenityTextActive: { color: Colors.white },
-  filterActions: { flexDirection: "row", gap: 10 },
-  filterActionBtn: { flex: 1, paddingVertical: 10 },
-  sortContainer: {
-  height: 48,
-  backgroundColor: Colors.white,
-  borderBottomWidth: 4,
-  borderBottomColor: Colors.slate100,
-},
-
-sortRow: {
-  paddingHorizontal: 16,
-  alignItems: "center",
-  gap: 8,
-  minHeight: 44,
-},
-  sortLabel: { fontSize: 12, color: Colors.slate400, fontFamily: Fonts.body },
-  sortChip: {
-  paddingHorizontal: 12,
-  paddingVertical: 7,
-  borderRadius: Radius.full,
-  backgroundColor: Colors.slate100,
-  justifyContent: "center",
-  alignItems: "center",
-  },
+  filterActions: { flexDirection: 'row', gap: 10 },
+  filterActionButton: { flex: 1, paddingHorizontal: Spacing.sm },
+  sortContainer: { minHeight: 52, backgroundColor: Colors.white, borderBottomWidth: 4, borderBottomColor: Colors.slate100 },
+  sortRow: { paddingHorizontal: Spacing.lg, alignItems: 'center', gap: Spacing.sm, minHeight: 48 },
+  sortLabel: { fontSize: 12, color: TextColors.muted, fontFamily: Fonts.body },
+  sortChip: { minHeight: 44, paddingHorizontal: Spacing.md, borderRadius: Radius.full, backgroundColor: Colors.slate100, justifyContent: 'center', alignItems: 'center' },
   sortChipActive: { backgroundColor: Colors.slate900 },
-  sortChipText: {
-    fontSize: 12,
-    color: Colors.slate600,
-    lineHeight: 16,
-  },
-  sortChipTextActive: { color: Colors.white, },
-  resultsCount: {
-    fontSize: 12,
-    color: Colors.slate400,
-    fontFamily: Fonts.body,
-    marginBottom: 8,
-  },
-  card: {
-    backgroundColor: Colors.white,
-    borderRadius: Radius.xl,
-    overflow: "hidden",
-    ...Shadow.sm,
-  },
-  cardImageWrapper: { height: 180, position: "relative" },
-  cardImage: { width: "100%", height: "100%" },
-  cardBadges: {
-    position: "absolute",
-    top: 10,
-    left: 10,
-    flexDirection: "row",
-    gap: 6,
-  },
-  favBtn: {
-    position: "absolute",
-    top: 10,
-    right: 10,
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: "rgba(255,255,255,0.85)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  favBtnActive: { backgroundColor: Colors.red500 },
-  cardBody: { padding: 16, gap: 6 },
-  cardTop: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-  },
-  cardName: {
-    fontSize: 16,
-    fontFamily: Fonts.heading,
-    color: Colors.slate900,
-    flex: 1,
-    marginRight: 8,
-  },
-  cardLocation: {
-    fontSize: 13,
-    fontFamily: Fonts.body,
-    color: Colors.slate500,
-  },
-  tagsRow: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
-  cardFooter: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginTop: 4,
-  },
-  cardPrice: {
-    fontSize: 18,
-    fontFamily: Fonts.heading,
-    color: Colors.slate900,
-  },
-  cardPriceSub: {
-    fontSize: 13,
-    fontFamily: Fonts.body,
-    color: Colors.slate400,
-  },
-  viewBtn: { paddingVertical: 8, paddingHorizontal: 16 },
+  sortChipText: { fontSize: 12, color: TextColors.secondary, lineHeight: 17, fontFamily: Fonts.bodyMed },
+  sortChipTextActive: { color: Colors.white },
+  list: { padding: Spacing.lg, gap: 14, paddingBottom: 100 },
+  emptyList: { flexGrow: 1 },
+  resultsCount: { fontSize: 12, lineHeight: 17, color: TextColors.muted, fontFamily: Fonts.body, marginBottom: Spacing.sm },
 });

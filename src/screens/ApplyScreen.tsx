@@ -1,804 +1,373 @@
-import React, { useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import {
-  View,
-  Text,
-  ScrollView,
-  TouchableOpacity,
-  StyleSheet,
   KeyboardAvoidingView,
   Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+  useWindowDimensions,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { Ionicons } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
-
-import { RootStackParamList } from '../../App';
-import { Colors, Fonts, Radius, Shadow } from '../theme';
-import { Btn, Input } from '../components/UI';
+import { Ionicons } from '@expo/vector-icons';
+import { StatusBar } from 'expo-status-bar';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import {
+  APPLICATION_STEPS,
+  DOCUMENT_CATEGORIES,
+  buildApplicationReview,
+  createApplicationDraft,
+  firstInvalidApplicationStep,
+  normalizeApplicationDraft,
+  validateApplication,
+  validateApplicationStep,
+  type ApplicationDraft,
+  type ApplicationErrors,
+  type ApplicationStep,
+  type DocumentCategoryId,
+} from '../application';
+import { Btn, IconButton, Input } from '../components/UI';
 import { universities } from '../data';
+import type { RootStackParamList } from '../navigation/types';
+import { useApplications } from '../state/ApplicationContext';
+import { Colors, Fonts, Radius, Shadow, Spacing, StatusColors, TextColors } from '../theme';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Apply'>;
+type PersonalKey = keyof ApplicationDraft['personal'];
+type EmergencyKey = keyof ApplicationDraft['emergency'];
 
-const DOC_TYPES = [
-  'Student ID',
-  'Proof of Registration',
-  'ID / Passport',
-  'Proof of Funding',
-];
-
-const STEPS = [
-  'Room',
-  'Personal',
-  'Documents',
-  'Emergency',
-  'Review',
-];
+const RELATIONSHIPS = ['Parent', 'Sibling', 'Guardian', 'Spouse', 'Friend'];
 
 export default function ApplyScreen({ navigation, route }: Props) {
-  const { property } = route.params;
+  const { property, selectedRoomId } = route.params;
   const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
+  const { submitApplication } = useApplications();
+  const scrollRef = useRef<ScrollView>(null);
+  const submissionStarted = useRef(false);
+  const [draft, setDraft] = useState(() => createApplicationDraft(property, selectedRoomId));
+  const [errors, setErrors] = useState<ApplicationErrors>({});
+  const [submitting, setSubmitting] = useState(false);
+  const invalidSuppliedRoom = !!selectedRoomId && draft.selectedRoomId === null;
+  const availableRooms = property.rooms.filter((room) => room.available > 0);
+  const review = useMemo(() => buildApplicationReview(draft, property), [draft, property]);
+  const step = draft.currentStep;
 
-  const [step, setStep] = useState(0);
-  const [selectedRoom, setSelectedRoom] = useState<string | null>(null);
-  const [uploadedDocs, setUploadedDocs] = useState<string[]>([]);
+  const updateDraft = (update: Partial<ApplicationDraft>) => {
+    setDraft((current) => ({ ...current, ...update }));
+  };
 
-  const toggleDoc = (doc: string) =>
-    setUploadedDocs((prev) =>
-      prev.includes(doc)
-        ? prev.filter((d) => d !== doc)
-        : [...prev, doc]
-    );
+  const updatePersonal = (key: PersonalKey, value: string) => {
+    setDraft((current) => ({ ...current, personal: { ...current.personal, [key]: value } }));
+    setErrors((current) => ({ ...current, [key]: undefined }));
+  };
+
+  const updateEmergency = (key: EmergencyKey, value: string) => {
+    const errorKey = `emergency.${key}` as const;
+    setDraft((current) => ({ ...current, emergency: { ...current.emergency, [key]: value } }));
+    setErrors((current) => ({ ...current, [errorKey]: undefined }));
+  };
+
+  const toggleDocument = (id: DocumentCategoryId) => {
+    setDraft((current) => ({
+      ...current,
+      selectedDocuments: current.selectedDocuments.includes(id)
+        ? current.selectedDocuments.filter((documentId) => documentId !== id)
+        : [...current.selectedDocuments, id],
+    }));
+    setErrors((current) => ({ ...current, documents: undefined, [`document.${id}`]: undefined }));
+  };
+
+  const showValidation = (nextErrors: ApplicationErrors) => {
+    setErrors(nextErrors);
+    scrollRef.current?.scrollTo({ y: 0, animated: true });
+  };
+
+  const goBack = () => {
+    if (step === 0) navigation.goBack();
+    else updateDraft({ currentStep: (step - 1) as ApplicationStep });
+  };
+
+  const continueToNextStep = () => {
+    const nextErrors = validateApplicationStep(step, draft, property);
+    if (Object.keys(nextErrors).length) {
+      showValidation(nextErrors);
+      return;
+    }
+    setErrors({});
+    updateDraft({ currentStep: (step + 1) as ApplicationStep });
+    scrollRef.current?.scrollTo({ y: 0, animated: false });
+  };
+
+  const submit = () => {
+    if (submissionStarted.current) return;
+    const normalized = normalizeApplicationDraft(draft);
+    const nextErrors = validateApplication(normalized, property);
+    const invalidStep = firstInvalidApplicationStep(nextErrors);
+    if (invalidStep !== undefined) {
+      updateDraft({ currentStep: invalidStep });
+      showValidation(nextErrors);
+      return;
+    }
+    submissionStarted.current = true;
+    setSubmitting(true);
+    const application = submitApplication(normalized);
+    navigation.replace('AppStatus', { property, applicationId: application.id });
+  };
+
+  const errorSummary = Object.values(errors).find(Boolean);
+  const compactStepper = width < 360;
 
   return (
-    <KeyboardAvoidingView
-      style={{ flex: 1 }}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-    >
-      <View
-        style={[
-          styles.container,
-          { paddingTop: insets.top },
-        ]}
-      >
-        {/* Top bar */}
+    <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+      <StatusBar style="dark" />
+      <View style={[styles.container, { paddingTop: insets.top }]}>
         <View style={styles.topBar}>
-          <TouchableOpacity
-            style={styles.backBtn}
-            onPress={() =>
-              step === 0
-                ? navigation.goBack()
-                : setStep(step - 1)
-            }
-            activeOpacity={0.7}
-          >
-            <Ionicons
-              name="arrow-back-outline"
-              size={22}
-              color={Colors.slate600}
-            />
-          </TouchableOpacity>
-
-          <Text style={styles.topTitle}>
-            Apply for Accommodation
-          </Text>
-
-          {/* Keeps title centered */}
+          <IconButton icon="arrow-back-outline" label={step === 0 ? 'Leave application' : `Back to ${APPLICATION_STEPS[step - 1]}`} onPress={goBack} />
+          <Text accessibilityRole="header" style={styles.topTitle}>Apply for Accommodation</Text>
           <View style={styles.headerSpacer} />
         </View>
 
-        {/* Stepper */}
-        <View style={styles.stepper}>
-          {STEPS.map((s, i) => (
-            <React.Fragment key={s}>
+        <View accessible accessibilityRole="text" accessibilityLabel={`Application progress, step ${step + 1} of ${APPLICATION_STEPS.length}: ${APPLICATION_STEPS[step]}`} style={styles.stepper}>
+          {APPLICATION_STEPS.map((label, index) => (
+            <React.Fragment key={label}>
               <View style={styles.stepItem}>
-                <View
-                  style={[
-                    styles.stepCircle,
-                    i <= step && styles.stepCircleActive,
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.stepNum,
-                      i <= step && styles.stepNumActive,
-                    ]}
-                  >
-                    {i < step ? '✓' : i + 1}
-                  </Text>
+                <View style={[styles.stepCircle, index <= step && styles.stepCircleActive]}>
+                  <Text style={[styles.stepNum, index <= step && styles.stepNumActive]}>{index < step ? '✓' : index + 1}</Text>
                 </View>
-
-                <Text
-                  style={[
-                    styles.stepLabel,
-                    i === step && styles.stepLabelActive,
-                  ]}
-                >
-                  {s}
-                </Text>
+                {!compactStepper || index === step ? <Text numberOfLines={1} style={[styles.stepLabel, index === step && styles.stepLabelActive]}>{label}</Text> : null}
               </View>
-
-              {i < STEPS.length - 1 && (
-                <View
-                  style={[
-                    styles.stepLine,
-                    i < step && styles.stepLineActive,
-                  ]}
-                />
-              )}
+              {index < APPLICATION_STEPS.length - 1 ? <View style={[styles.stepLine, index < step && styles.stepLineActive]} /> : null}
             </React.Fragment>
           ))}
         </View>
 
-        <ScrollView
-          style={styles.scroll}
-          contentContainerStyle={styles.scrollContent}
-          keyboardShouldPersistTaps="handled"
-        >
-          {/* Room */}
-          {step === 0 && (
-            <View style={styles.stepContent}>
-              <Text style={styles.stepTitle}>
-                Select a Room
-              </Text>
-
-              <Text style={styles.stepSub}>
-                {property.name}
-              </Text>
-
-              {property.rooms.map((r) => (
-                <TouchableOpacity
-                  key={r.id}
-                  style={[
-                    styles.roomOption,
-                    selectedRoom === r.id &&
-                      styles.roomOptionActive,
-                  ]}
-                  onPress={() => setSelectedRoom(r.id)}
-                  activeOpacity={0.8}
-                >
-                  <View style={styles.roomOptionTop}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.roomOptionTitle}>
-                        {r.type} Room
-                      </Text>
-
-                      <Text style={styles.roomOptionMeta}>
-                        {r.bathroom} ·{' '}
-                        {r.furnished
-                          ? 'Furnished'
-                          : 'Unfurnished'}
-                      </Text>
-                    </View>
-
-                    <View
-                      style={[
-                        styles.radioCircle,
-                        selectedRoom === r.id &&
-                          styles.radioCircleActive,
-                      ]}
-                    >
-                      {selectedRoom === r.id && (
-                        <View style={styles.radioDot} />
-                      )}
-                    </View>
-                  </View>
-
-                  <Text style={styles.roomOptionPrice}>
-                    R{r.price.toLocaleString()}/month
-                  </Text>
-                </TouchableOpacity>
-              ))}
+        <ScrollView ref={scrollRef} style={styles.scroll} contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets>
+          {errorSummary ? (
+            <View accessibilityRole="alert" accessibilityLiveRegion="assertive" style={styles.errorSummary}>
+              <Ionicons name="alert-circle-outline" size={20} color={Colors.red600} />
+              <Text style={styles.errorSummaryText}>{errorSummary}</Text>
             </View>
-          )}
+          ) : null}
 
-          {/* Personal */}
-          {step === 1 && (
+          {step === 0 ? (
             <View style={styles.stepContent}>
-              <Text style={styles.stepTitle}>
-                Personal Information
-              </Text>
-
-              <Input
-                label="Full name"
-                placeholder="Siyanda Dlamini"
-                style={styles.field}
-              />
-
-              <Input
-                label="Student number"
-                placeholder="2021012345"
-                style={styles.field}
-              />
-
-              <View style={styles.field}>
-                <Text style={styles.pickerLabel}>
-                  University
-                </Text>
-
-                <View style={styles.pickerWrapper}>
-                  <Picker
-                    style={{
-                      height: 48,
-                      color: Colors.slate800,
-                    }}
-                  >
-                    {universities.map((u) => (
-                      <Picker.Item
-                        key={u.id}
-                        label={u.name}
-                        value={u.id}
-                      />
-                    ))}
-                  </Picker>
-                </View>
-              </View>
-
-              <Input
-                label="Phone number"
-                placeholder="+27 71 234 5678"
-                keyboardType="phone-pad"
-                style={styles.field}
-              />
-
-              <Input
-                label="Email address"
-                placeholder="student@university.ac.za"
-                keyboardType="email-address"
-                style={styles.field}
-              />
-            </View>
-          )}
-
-          {/* Documents */}
-          {step === 2 && (
-            <View style={styles.stepContent}>
-              <Text style={styles.stepTitle}>
-                Upload Documents
-              </Text>
-
-              <Text style={styles.stepSub}>
-                Upload the required documents to complete your
-                application.
-              </Text>
-
-              {DOC_TYPES.map((doc) => {
-                const done = uploadedDocs.includes(doc);
-
+              <Text accessibilityRole="header" style={styles.stepTitle}>Select a Room</Text>
+              <Text style={styles.stepSub}>{property.name}</Text>
+              <Text style={styles.availabilityNote}>Room availability may not reflect live inventory.</Text>
+              {invalidSuppliedRoom ? <Text accessibilityRole="alert" style={styles.roomNotice}>The requested room is invalid or unavailable. Select an available room explicitly.</Text> : null}
+              {!availableRooms.length ? <View style={styles.roomNoticeBox}><Text style={styles.roomNoticeText}>No rooms are currently listed as available.</Text></View> : null}
+              {property.rooms.map((room) => {
+                const selected = draft.selectedRoomId === room.id;
+                const disabled = room.available <= 0;
                 return (
-                  <View
-                    key={doc}
-                    style={[
-                      styles.docCard,
-                      done && styles.docCardDone,
-                    ]}
+                  <TouchableOpacity
+                    key={room.id}
+                    accessibilityRole="radio"
+                    accessibilityLabel={`${room.type} room, R${room.price.toLocaleString()} per month, ${disabled ? 'currently full' : `${room.available} available`}`}
+                    accessibilityState={{ selected, disabled }}
+                    activeOpacity={0.8}
+                    disabled={disabled}
+                    onPress={() => {
+                      updateDraft({ selectedRoomId: room.id });
+                      setErrors((current) => ({ ...current, selectedRoomId: undefined }));
+                    }}
+                    style={[styles.roomOption, selected && styles.roomOptionActive, disabled && styles.roomOptionDisabled]}
                   >
-                    <View
-                      style={[
-                        styles.docIcon,
-                        done && styles.docIconDone,
-                      ]}
-                    >
-                      <Text style={styles.docIconText}>
-                        {done ? '✓' : '↑'}
-                      </Text>
+                    <View style={styles.optionTop}>
+                      <View style={styles.optionCopy}>
+                        <Text style={styles.optionTitle}>{room.type} Room</Text>
+                        <Text style={styles.optionMeta}>{room.bathroom} · {room.furnished ? 'Furnished' : 'Unfurnished'}</Text>
+                      </View>
+                      <View style={[styles.radioCircle, selected && styles.radioCircleActive]}>{selected ? <View style={styles.radioDot} /> : null}</View>
                     </View>
-
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.docName}>
-                        {doc}
-                      </Text>
-
-                      <Text
-                        style={[
-                          styles.docStatus,
-                          done && styles.docStatusDone,
-                        ]}
-                      >
-                        {done
-                          ? 'Uploaded ✓'
-                          : 'PDF, JPG or PNG · Max 5MB'}
-                      </Text>
-                    </View>
-
-                    <TouchableOpacity
-                      style={[
-                        styles.uploadBtn,
-                        done && styles.uploadBtnDone,
-                      ]}
-                      onPress={() => toggleDoc(doc)}
-                    >
-                      <Text
-                        style={[
-                          styles.uploadBtnText,
-                          done &&
-                            styles.uploadBtnTextDone,
-                        ]}
-                      >
-                        {done ? 'Done' : 'Upload'}
-                      </Text>
-                    </TouchableOpacity>
-                  </View>
+                    <Text style={styles.optionPrice}>R{room.price.toLocaleString()}/month</Text>
+                    <Text style={[styles.availability, disabled && styles.unavailable]}>{disabled ? 'Currently full' : `${room.available} listed as available`}</Text>
+                  </TouchableOpacity>
                 );
               })}
             </View>
-          )}
+          ) : null}
 
-          {/* Emergency */}
-          {step === 3 && (
+          {step === 1 ? (
             <View style={styles.stepContent}>
-              <Text style={styles.stepTitle}>
-                Emergency Contact
-              </Text>
-
-              <Text style={styles.stepSub}>
-                Who should we contact in an emergency?
-              </Text>
-
-              <Input
-                label="Full name"
-                placeholder="Nomsa Dlamini"
-                style={styles.field}
-              />
-
+              <Text accessibilityRole="header" style={styles.stepTitle}>Personal Information</Text>
+              <Text style={styles.stepSub}>Information entered here remains in the current app session.</Text>
+              <Input label="Full name" placeholder="e.g. Alex Student" value={draft.personal.fullName} onChangeText={(value) => updatePersonal('fullName', value)} error={errors.fullName} required autoComplete="name" returnKeyType="next" style={styles.field} />
+              <Input label="Student number" placeholder="e.g. 2021012345" value={draft.personal.studentNumber} onChangeText={(value) => updatePersonal('studentNumber', value)} error={errors.studentNumber} required keyboardType="number-pad" returnKeyType="next" style={styles.field} />
               <View style={styles.field}>
-                <Text style={styles.pickerLabel}>
-                  Relationship
-                </Text>
-
-                <View style={styles.pickerWrapper}>
-                  <Picker
-                    style={{
-                      height: 48,
-                      color: Colors.slate800,
-                    }}
-                  >
-                    {[
-                      'Parent',
-                      'Sibling',
-                      'Guardian',
-                      'Spouse',
-                      'Friend',
-                    ].map((r) => (
-                      <Picker.Item
-                        key={r}
-                        label={r}
-                        value={r}
-                      />
-                    ))}
+                <Text style={styles.pickerLabel}>University <Text style={styles.required}>*</Text></Text>
+                <View style={[styles.pickerWrapper, errors.universityId && styles.pickerError]}>
+                  <Picker accessibilityLabel="University, required" selectedValue={draft.personal.universityId} onValueChange={(value: string) => updatePersonal('universityId', value)} style={styles.picker}>
+                    {universities.map((university) => <Picker.Item key={university.id} label={university.name} value={university.id} />)}
                   </Picker>
                 </View>
+                {errors.universityId ? <Text accessibilityRole="alert" style={styles.fieldError}>{errors.universityId}</Text> : null}
               </View>
-
-              <Input
-                label="Phone number"
-                placeholder="+27 83 456 7890"
-                keyboardType="phone-pad"
-                style={styles.field}
-              />
+              <Input label="Phone number" placeholder="e.g. +27 71 234 5678" value={draft.personal.phone} onChangeText={(value) => updatePersonal('phone', value)} error={errors.phone} required keyboardType="phone-pad" autoComplete="tel" returnKeyType="next" style={styles.field} />
+              <Input label="Email address" placeholder="e.g. student@example.com" value={draft.personal.email} onChangeText={(value) => updatePersonal('email', value)} error={errors.email} required keyboardType="email-address" autoComplete="email" returnKeyType="done" style={styles.field} />
             </View>
-          )}
+          ) : null}
 
-          {/* Review */}
-          {step === 4 && (
+          {step === 2 ? (
             <View style={styles.stepContent}>
-              <Text style={styles.stepTitle}>
-                Review Application
-              </Text>
-
-              <Text style={styles.stepSub}>
-                Please review before submitting.
-              </Text>
-
-              {[
-                {
-                  label: 'Property',
-                  value: property.name,
-                },
-                {
-                  label: 'Room Type',
-                  value:
-                    (property.rooms[0]?.type ?? '') +
-                    ' Room',
-                },
-                {
-                  label: 'Monthly Rent',
-                  value: `R${property.rooms[0]?.price.toLocaleString()}`,
-                },
-                {
-                  label: 'Student',
-                  value: 'Siyanda Dlamini',
-                },
-                {
-                  label: 'University',
-                  value: 'University of Venda',
-                },
-                {
-                  label: 'Documents',
-                  value: `${uploadedDocs.length}/${DOC_TYPES.length} uploaded`,
-                },
-                {
-                  label: 'Emergency Contact',
-                  value: 'Nomsa Dlamini (Parent)',
-                },
-              ].map(({ label, value }) => (
-                <View
-                  key={label}
-                  style={styles.reviewRow}
-                >
-                  <Text style={styles.reviewLabel}>
-                    {label}
-                  </Text>
-
-                  <Text style={styles.reviewValue}>
-                    {value}
-                  </Text>
-                </View>
-              ))}
-
-              <View style={styles.reviewNote}>
-                <Text style={styles.reviewNoteText}>
-                  By submitting, you confirm all information
-                  is accurate and agree to the accommodation
-                  terms.
-                </Text>
-              </View>
+              <Text accessibilityRole="header" style={styles.stepTitle}>Document Selection</Text>
+              <Text style={styles.stepSub}>Select document categories below. No files are uploaded, stored, checked, or sent.</Text>
+              {DOCUMENT_CATEGORIES.map((category) => {
+                const selected = draft.selectedDocuments.includes(category.id);
+                return (
+                  <TouchableOpacity
+                    key={category.id}
+                    accessibilityRole="checkbox"
+                    accessibilityLabel={`${category.label}, ${category.required ? 'required' : 'optional'} selection`}
+                    accessibilityHint="Does not choose or upload a real file"
+                    accessibilityState={{ checked: selected }}
+                    onPress={() => toggleDocument(category.id)}
+                    style={[styles.docCard, selected && styles.docCardSelected]}
+                  >
+                    <View style={[styles.docIcon, selected && styles.docIconSelected]}><Ionicons name={selected ? 'checkmark' : 'document-outline'} size={20} color={selected ? Colors.white : Colors.blue} /></View>
+                    <View style={styles.optionCopy}>
+                      <Text style={styles.docName}>{category.label}</Text>
+                      <Text style={[styles.docStatus, selected && styles.docStatusSelected]}>{selected ? 'Selected' : category.required ? 'Required · Not selected' : 'Optional · Not selected'}</Text>
+                      {errors[`document.${category.id}`] ? <Text accessibilityRole="alert" style={styles.fieldError}>{errors[`document.${category.id}`]}</Text> : null}
+                    </View>
+                    <Text style={styles.docAction}>{selected ? 'Remove' : 'Select'}</Text>
+                  </TouchableOpacity>
+                );
+              })}
             </View>
-          )}
+          ) : null}
+
+          {step === 3 ? (
+            <View style={styles.stepContent}>
+              <Text accessibilityRole="header" style={styles.stepTitle}>Emergency Contact</Text>
+              <Text style={styles.stepSub}>This contact remains in the current app session and will not be contacted.</Text>
+              <Input label="Full name" placeholder="e.g. Taylor Student" value={draft.emergency.fullName} onChangeText={(value) => updateEmergency('fullName', value)} error={errors['emergency.fullName']} required autoComplete="name" returnKeyType="next" style={styles.field} />
+              <View style={styles.field}>
+                <Text style={styles.pickerLabel}>Relationship <Text style={styles.required}>*</Text></Text>
+                <View style={[styles.pickerWrapper, errors['emergency.relationship'] && styles.pickerError]}>
+                  <Picker accessibilityLabel="Relationship, required" selectedValue={draft.emergency.relationship} onValueChange={(value: string) => updateEmergency('relationship', value)} style={styles.picker}>
+                    {RELATIONSHIPS.map((relationship) => <Picker.Item key={relationship} label={relationship} value={relationship} />)}
+                  </Picker>
+                </View>
+                {errors['emergency.relationship'] ? <Text accessibilityRole="alert" style={styles.fieldError}>{errors['emergency.relationship']}</Text> : null}
+              </View>
+              <Input label="Phone number" placeholder="e.g. +27 83 456 7890" value={draft.emergency.phone} onChangeText={(value) => updateEmergency('phone', value)} error={errors['emergency.phone']} required keyboardType="phone-pad" autoComplete="tel" returnKeyType="done" style={styles.field} />
+            </View>
+          ) : null}
+
+          {step === 4 && review ? (
+            <View style={styles.stepContent}>
+              <Text accessibilityRole="header" style={styles.stepTitle}>Review Application</Text>
+              <Text style={styles.stepSub}>Confirm the information below. This will create a local record for the current session.</Text>
+              <ReviewSection title="Accommodation" onEdit={() => updateDraft({ currentStep: 0 })}>
+                <ReviewRow label="Property" value={review.propertyName} />
+                <ReviewRow label="Room" value={review.roomType} />
+                <ReviewRow label="Monthly price" value={`R${review.roomPrice.toLocaleString()}`} />
+              </ReviewSection>
+              <ReviewSection title="Personal information" onEdit={() => updateDraft({ currentStep: 1 })}>
+                <ReviewRow label="Full name" value={review.personal.fullName} />
+                <ReviewRow label="Student number" value={review.personal.studentNumber} />
+                <ReviewRow label="University" value={universities.find((university) => university.id === review.personal.universityId)?.name ?? review.personal.universityId} />
+                <ReviewRow label="Phone" value={review.personal.phone} />
+                <ReviewRow label="Email" value={review.personal.email} />
+              </ReviewSection>
+              <ReviewSection title="Document selections" onEdit={() => updateDraft({ currentStep: 2 })}>
+                {review.documents.map((document) => <ReviewRow key={document.id} label={`${document.label}${document.required ? ' (required)' : ' (optional)'}`} value={document.selected ? 'Selected' : 'Not selected'} />)}
+              </ReviewSection>
+              <ReviewSection title="Emergency contact" onEdit={() => updateDraft({ currentStep: 3 })}>
+                <ReviewRow label="Full name" value={review.emergency.fullName} />
+                <ReviewRow label="Relationship" value={review.emergency.relationship} />
+                <ReviewRow label="Phone" value={review.emergency.phone} />
+              </ReviewSection>
+              <View style={styles.reviewNote}><Text style={styles.reviewNoteText}>Saving creates a record for this session. No accommodation provider receives it, and it does not reserve or confirm a room.</Text></View>
+            </View>
+          ) : null}
         </ScrollView>
 
-        {/* Footer */}
-        <View
-          style={[
-            styles.footer,
-            { paddingBottom: insets.bottom + 12 },
-          ]}
-        >
-          {step < 4 ? (
-            <Btn
-              onPress={() => setStep(step + 1)}
-              disabled={step === 0 && !selectedRoom}
-              style={styles.nextBtn}
-            >
-              {step === 3
-                ? 'Review Application'
-                : 'Continue →'}
-            </Btn>
-          ) : (
-            <Btn
-              onPress={() =>
-                navigation.replace('AppStatus', {
-                  property,
-                })
-              }
-              style={styles.nextBtn}
-            >
-              Submit Application →
-            </Btn>
-          )}
+        <View style={[styles.footer, { paddingBottom: insets.bottom + Spacing.sm }]}>
+          {step < 4 ? <Btn onPress={continueToNextStep} style={styles.nextButton}>{step === 3 ? 'Review Application' : 'Continue →'}</Btn> : <Btn accessibilityHint="Creates a record for this app session only" loading={submitting} disabled={submitting} onPress={submit} style={styles.nextButton}>Save Application</Btn>}
         </View>
       </View>
     </KeyboardAvoidingView>
   );
 }
 
+function ReviewSection({ title, onEdit, children }: { title: string; onEdit: () => void; children: React.ReactNode }) {
+  return <View style={styles.reviewSection}><View style={styles.reviewHeading}><Text accessibilityRole="header" style={styles.reviewTitle}>{title}</Text><TouchableOpacity accessibilityRole="button" accessibilityLabel={`Edit ${title}`} onPress={onEdit} style={styles.editButton}><Text style={styles.editText}>Edit</Text></TouchableOpacity></View>{children}</View>;
+}
+
+function ReviewRow({ label, value }: { label: string; value: string }) {
+  return <View accessible accessibilityLabel={`${label}: ${value}`} style={styles.reviewRow}><Text style={styles.reviewLabel}>{label}</Text><Text style={styles.reviewValue}>{value}</Text></View>;
+}
+
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Colors.white,
-  },
-
-  /* Top bar */
-  topBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.slate100,
-  },
-
-  backBtn: {
-    width: 40,
-    height: 40,
-    alignItems: 'flex-start',
-    justifyContent: 'center',
-  },
-
-  headerSpacer: {
-    width: 40,
-  },
-
-  topTitle: {
-    flex: 1,
-    textAlign: 'center',
-    fontSize: 16,
-    fontFamily: Fonts.heading,
-    color: Colors.slate900,
-  },
-
-  /* Stepper */
-  stepper: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.slate100,
-  },
-
-  stepItem: {
-    alignItems: 'center',
-    gap: 4,
-  },
-
-  stepCircle: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: Colors.slate100,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  stepCircleActive: {
-    backgroundColor: Colors.blue,
-  },
-
-  stepNum: {
-    fontSize: 12,
-    fontFamily: Fonts.bodySemi,
-    color: Colors.slate400,
-  },
-
-  stepNumActive: {
-    color: Colors.white,
-  },
-
-  stepLabel: {
-    fontSize: 9,
-    fontFamily: Fonts.bodyMed,
-    color: Colors.slate400,
-  },
-
-  stepLabelActive: {
-    color: Colors.blue,
-  },
-
-  stepLine: {
-    flex: 1,
-    height: 2,
-    backgroundColor: Colors.slate200,
-    marginBottom: 14,
-  },
-
-  stepLineActive: {
-    backgroundColor: Colors.blue,
-  },
-
-  /* Scroll */
-  scroll: {
-    flex: 1,
-  },
-
-  scrollContent: {
-    padding: 20,
-    gap: 14,
-  },
-
-  stepContent: {
-    gap: 12,
-  },
-
-  stepTitle: {
-    fontSize: 22,
-    fontFamily: Fonts.heading,
-    color: Colors.slate900,
-  },
-
-  stepSub: {
-    fontSize: 13,
-    fontFamily: Fonts.body,
-    color: Colors.slate500,
-  },
-
-  /* Room */
-  roomOption: {
-    borderWidth: 2,
-    borderColor: Colors.slate200,
-    borderRadius: Radius.xl,
-    padding: 16,
-    gap: 8,
-  },
-
-  roomOptionActive: {
-    borderColor: Colors.blue,
-    backgroundColor: Colors.blue50,
-  },
-
-  roomOptionTop: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-  },
-
-  roomOptionTitle: {
-    fontSize: 16,
-    fontFamily: Fonts.heading,
-    color: Colors.slate900,
-  },
-
-  roomOptionMeta: {
-    fontSize: 12,
-    fontFamily: Fonts.body,
-    color: Colors.slate500,
-    marginTop: 2,
-  },
-
-  radioCircle: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    borderWidth: 2,
-    borderColor: Colors.slate300,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  radioCircleActive: {
-    borderColor: Colors.blue,
-  },
-
-  radioDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: Colors.blue,
-  },
-
-  roomOptionPrice: {
-    fontSize: 15,
-    fontFamily: Fonts.bodySemi,
-    color: Colors.blue,
-  },
-
-  /* Fields */
-  field: {
-    marginBottom: 4,
-  },
-
-  pickerLabel: {
-    fontSize: 13,
-    fontFamily: Fonts.bodyMed,
-    color: Colors.slate700,
-    marginBottom: 6,
-  },
-
-  pickerWrapper: {
-    borderWidth: 1,
-    borderColor: Colors.slate200,
-    borderRadius: Radius.lg,
-    overflow: 'hidden',
-    backgroundColor: Colors.white,
-  },
-
-  /* Documents */
-  docCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 2,
-    borderStyle: 'dashed',
-    borderColor: Colors.slate300,
-    borderRadius: Radius.xl,
-    padding: 14,
-    gap: 12,
-  },
-
-  docCardDone: {
-    borderStyle: 'solid',
-    borderColor: Colors.green600,
-    backgroundColor: Colors.green100,
-  },
-
-  docIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: Radius.md,
-    backgroundColor: Colors.slate100,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  docIconDone: {
-    backgroundColor: Colors.green100,
-  },
-
-  docIconText: {
-    fontSize: 18,
-    color: Colors.slate500,
-  },
-
-  docName: {
-    fontSize: 13,
-    fontFamily: Fonts.bodySemi,
-    color: Colors.slate900,
-  },
-
-  docStatus: {
-    fontSize: 11,
-    fontFamily: Fonts.body,
-    color: Colors.slate400,
-    marginTop: 2,
-  },
-
-  docStatusDone: {
-    color: Colors.green600,
-  },
-
-  uploadBtn: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    backgroundColor: Colors.blue,
-    borderRadius: Radius.md,
-  },
-
-  uploadBtnDone: {
-    backgroundColor: Colors.green100,
-  },
-
-  uploadBtnText: {
-    fontSize: 12,
-    fontFamily: Fonts.bodySemi,
-    color: Colors.white,
-  },
-
-  uploadBtnTextDone: {
-    color: Colors.green600,
-  },
-
-  /* Review */
-  reviewRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.slate100,
-  },
-
-  reviewLabel: {
-    fontSize: 13,
-    fontFamily: Fonts.body,
-    color: Colors.slate500,
-  },
-
-  reviewValue: {
-    fontSize: 13,
-    fontFamily: Fonts.bodySemi,
-    color: Colors.slate900,
-  },
-
-  reviewNote: {
-    backgroundColor: Colors.blue50,
-    borderRadius: Radius.lg,
-    padding: 14,
-    marginTop: 8,
-  },
-
-  reviewNoteText: {
-    fontSize: 12,
-    fontFamily: Fonts.body,
-    color: Colors.blue,
-    lineHeight: 18,
-  },
-
-  /* Footer */
-  footer: {
-    paddingHorizontal: 20,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: Colors.slate100,
-    backgroundColor: Colors.white,
-  },
-
-  nextBtn: {},
+  flex: { flex: 1 },
+  container: { flex: 1, backgroundColor: Colors.white },
+  topBar: { minHeight: 60, flexDirection: 'row', alignItems: 'center', paddingHorizontal: Spacing.sm, borderBottomWidth: 1, borderBottomColor: Colors.slate100 },
+  topTitle: { flex: 1, textAlign: 'center', fontSize: 16, lineHeight: 22, fontFamily: Fonts.heading, color: TextColors.primary },
+  headerSpacer: { width: 44 },
+  stepper: { minHeight: 70, flexDirection: 'row', alignItems: 'center', paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, borderBottomWidth: 1, borderBottomColor: Colors.slate100 },
+  stepItem: { alignItems: 'center', gap: 4, minWidth: 28 },
+  stepCircle: { width: 28, height: 28, borderRadius: 14, backgroundColor: Colors.slate100, alignItems: 'center', justifyContent: 'center' },
+  stepCircleActive: { backgroundColor: Colors.blue },
+  stepNum: { fontSize: 11, fontFamily: Fonts.bodySemi, color: Colors.slate500 },
+  stepNumActive: { color: Colors.white },
+  stepLabel: { maxWidth: 64, fontSize: 9, fontFamily: Fonts.body, color: Colors.slate500 },
+  stepLabelActive: { color: Colors.blue, fontFamily: Fonts.bodySemi },
+  stepLine: { flex: 1, height: 2, marginHorizontal: 4, backgroundColor: Colors.slate200 },
+  stepLineActive: { backgroundColor: Colors.blue },
+  scroll: { flex: 1 },
+  scrollContent: { padding: Spacing.xl, paddingBottom: Spacing.xxl },
+  stepContent: { gap: Spacing.md },
+  stepTitle: { fontSize: 23, lineHeight: 30, fontFamily: Fonts.heading, color: TextColors.primary },
+  stepSub: { fontSize: 14, lineHeight: 21, fontFamily: Fonts.body, color: TextColors.secondary },
+  availabilityNote: { fontSize: 12, lineHeight: 18, fontFamily: Fonts.body, color: TextColors.muted },
+  errorSummary: { flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.sm, padding: Spacing.md, marginBottom: Spacing.md, backgroundColor: Colors.red100, borderRadius: Radius.lg, borderWidth: 1, borderColor: Colors.red500 },
+  errorSummaryText: { flex: 1, fontSize: 13, lineHeight: 19, fontFamily: Fonts.bodyMed, color: TextColors.danger },
+  roomNotice: { padding: Spacing.md, borderRadius: Radius.lg, backgroundColor: Colors.amber100, color: Colors.amber600, fontFamily: Fonts.bodyMed, lineHeight: 19 },
+  roomNoticeBox: { padding: Spacing.md, borderRadius: Radius.lg, backgroundColor: Colors.amber100 },
+  roomNoticeText: { color: Colors.amber600, fontFamily: Fonts.bodyMed, lineHeight: 19 },
+  roomOption: { padding: Spacing.lg, borderRadius: Radius.xl, borderWidth: 1, borderColor: Colors.slate200, backgroundColor: Colors.white, gap: Spacing.sm, ...Shadow.sm },
+  roomOptionActive: { borderWidth: 2, borderColor: Colors.blue, backgroundColor: Colors.blue50 },
+  roomOptionDisabled: { opacity: 0.52 },
+  optionTop: { flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.md },
+  optionCopy: { flex: 1, minWidth: 0 },
+  optionTitle: { fontSize: 16, fontFamily: Fonts.heading, color: TextColors.primary },
+  optionMeta: { fontSize: 12, lineHeight: 18, fontFamily: Fonts.body, color: TextColors.muted, marginTop: 3 },
+  optionPrice: { fontSize: 18, fontFamily: Fonts.heading, color: Colors.blue },
+  availability: { fontSize: 12, fontFamily: Fonts.bodyMed, color: StatusColors.green.foreground },
+  unavailable: { color: Colors.red600 },
+  radioCircle: { width: 22, height: 22, borderRadius: 11, borderWidth: 2, borderColor: Colors.slate300, alignItems: 'center', justifyContent: 'center' },
+  radioCircleActive: { borderColor: Colors.blue },
+  radioDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: Colors.blue },
+  field: { marginTop: Spacing.xs },
+  pickerLabel: { fontSize: 13, lineHeight: 19, fontFamily: Fonts.bodySemi, color: TextColors.secondary, marginBottom: 6 },
+  required: { color: Colors.red600 },
+  pickerWrapper: { minHeight: 48, justifyContent: 'center', borderWidth: 1, borderColor: Colors.slate300, borderRadius: Radius.lg, overflow: 'hidden', backgroundColor: Colors.white },
+  pickerError: { borderColor: Colors.red600, borderWidth: 2 },
+  picker: { height: 48, color: TextColors.primary },
+  fieldError: { marginTop: 5, fontSize: 12, lineHeight: 17, fontFamily: Fonts.body, color: TextColors.danger },
+  docCard: { minHeight: 92, flexDirection: 'row', alignItems: 'center', gap: Spacing.md, padding: Spacing.md, borderRadius: Radius.xl, borderWidth: 1, borderColor: Colors.slate200, backgroundColor: Colors.white },
+  docCardSelected: { borderColor: Colors.blue, backgroundColor: Colors.blue50 },
+  docIcon: { width: 44, height: 44, borderRadius: Radius.lg, alignItems: 'center', justifyContent: 'center', backgroundColor: Colors.blue100 },
+  docIconSelected: { backgroundColor: Colors.blue },
+  docName: { fontSize: 14, lineHeight: 20, fontFamily: Fonts.bodySemi, color: TextColors.primary },
+  docStatus: { fontSize: 12, lineHeight: 18, fontFamily: Fonts.body, color: TextColors.muted, marginTop: 2 },
+  docStatusSelected: { color: Colors.blue },
+  docAction: { minWidth: 54, textAlign: 'right', fontSize: 12, fontFamily: Fonts.bodySemi, color: Colors.blue },
+  reviewSection: { padding: Spacing.lg, gap: Spacing.sm, borderRadius: Radius.xl, backgroundColor: Colors.white, borderWidth: 1, borderColor: Colors.slate200 },
+  reviewHeading: { minHeight: 44, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: Spacing.md },
+  reviewTitle: { flex: 1, fontSize: 16, fontFamily: Fonts.heading, color: TextColors.primary },
+  editButton: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center', paddingHorizontal: Spacing.sm },
+  editText: { fontSize: 13, fontFamily: Fonts.bodySemi, color: Colors.blue },
+  reviewRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: Spacing.lg, paddingVertical: 4 },
+  reviewLabel: { flex: 1, fontSize: 12, lineHeight: 18, fontFamily: Fonts.body, color: TextColors.muted },
+  reviewValue: { flex: 1.5, textAlign: 'right', fontSize: 13, lineHeight: 19, fontFamily: Fonts.bodySemi, color: TextColors.primary },
+  reviewNote: { padding: Spacing.md, borderRadius: Radius.lg, backgroundColor: Colors.blue50 },
+  reviewNoteText: { fontSize: 12, lineHeight: 18, fontFamily: Fonts.body, color: Colors.blue },
+  footer: { paddingHorizontal: Spacing.xl, paddingTop: Spacing.md, borderTopWidth: 1, borderTopColor: Colors.slate100, backgroundColor: Colors.white },
+  nextButton: { width: '100%' },
 });

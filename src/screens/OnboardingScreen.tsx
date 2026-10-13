@@ -1,16 +1,15 @@
 import React, { useState, useRef } from 'react';
 import {
-  View, Text, TouchableOpacity, StyleSheet, Dimensions, FlatList, Animated,
+  View, Text, TouchableOpacity, StyleSheet, FlatList, useWindowDimensions,
 } from 'react-native';
-import { Image } from 'expo-image';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { RootStackParamList } from '../../App';
+import type { RootStackParamList } from '../navigation/types';
 import { Colors, Fonts, Radius } from '../theme';
 import { Btn } from '../components/UI';
+import { RemoteImage } from '../components/RemoteImage';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Onboarding'>;
-
-const { width, height } = Dimensions.get('window');
 
 const slides = [
   {
@@ -25,12 +24,14 @@ const slides = [
   },
   {
     image: 'https://images.unsplash.com/photo-1568605114967-8130f3a36994?w=800&h=1000&fit=crop&auto=format',
-    title: 'Book with confidence.',
-    subtitle: 'Verified accommodation, secure applications, and transparent pricing — no surprises.',
+    title: 'Apply with clarity.',
+    subtitle: 'Review accommodation details, compare room options, and follow a clear application journey.',
   },
 ];
 
 export default function OnboardingScreen({ navigation }: Props) {
+  const { width, height } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const [index, setIndex] = useState(0);
   const flatRef = useRef<FlatList>(null);
 
@@ -40,7 +41,7 @@ export default function OnboardingScreen({ navigation }: Props) {
       flatRef.current?.scrollToIndex({ index: next });
       setIndex(next);
     } else {
-      navigation.replace('Login');
+      navigation.replace('Main');
     }
   };
 
@@ -56,17 +57,21 @@ export default function OnboardingScreen({ navigation }: Props) {
         keyExtractor={(_, i) => String(i)}
         renderItem={({ item }) => (
           <View style={{ width, height }}>
-            <Image source={{ uri: item.image }} style={StyleSheet.absoluteFillObject} contentFit="cover" />
+            <RemoteImage
+              source={{ uri: item.image }}
+              style={StyleSheet.absoluteFill}
+              accessibilityLabel={`${item.title} onboarding image`}
+            />
             <View style={styles.overlay} />
           </View>
         )}
       />
 
-      <TouchableOpacity style={styles.skipBtn} onPress={() => navigation.replace('Login')}>
+      <TouchableOpacity accessibilityRole="button" accessibilityLabel="Skip onboarding" style={[styles.skipBtn, { top: insets.top + 12 }]} onPress={() => navigation.replace('Main')}>
         <Text style={styles.skipText}>Skip</Text>
       </TouchableOpacity>
 
-      <View style={styles.bottom}>
+      <View style={[styles.bottom, { paddingBottom: insets.bottom + 24 }]}>
         <View style={styles.dotsRow}>
           {slides.map((_, i) => (
             <View key={i} style={[styles.dot, i === index && styles.dotActive]} />
@@ -87,7 +92,7 @@ export default function OnboardingScreen({ navigation }: Props) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.navy },
   overlay: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: "rgba(15,27,45,0.55)",
   },
   skipBtn: {

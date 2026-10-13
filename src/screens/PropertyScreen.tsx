@@ -1,46 +1,60 @@
 import React, { useState } from 'react';
 import {
+  Alert,
   View,
   Text,
   ScrollView,
   TouchableOpacity,
   StyleSheet,
-  Dimensions,
   FlatList,
+  useWindowDimensions,
 } from 'react-native';
-import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { RootStackParamList } from '../../App';
-import { Colors, Fonts, Radius, Shadow } from '../theme';
-import { Badge, VerifiedBadge, StarRating, Btn, Divider } from '../components/UI';
+import type { RootStackParamList } from '../navigation/types';
+import { Colors, Fonts, Radius, TextColors } from '../theme';
+import { Badge, VerifiedBadge, StarRating, Btn, Divider, IconButton } from '../components/UI';
 import { Ionicons } from '@expo/vector-icons';
+import { RemoteImage } from '../components/RemoteImage';
+import { getConversationForProperty } from '../communication';
+import { useCommunication } from '../state/CommunicationContext';
+import { useFavorites } from '../state/FavoritesContext';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Property'>;
-const { width } = Dimensions.get('window');
-
 const TABS = ['About', 'Rooms', 'Reviews'] as const;
 type Tab = typeof TABS[number];
 
 export default function PropertyScreen({ navigation, route }: Props) {
   const { property } = route.params;
   const insets = useSafeAreaInsets();
+  const { width, fontScale } = useWindowDimensions();
+  const { isFavorite, toggleFavorite } = useFavorites();
+  const { conversations } = useCommunication();
   const [imgIdx, setImgIdx] = useState(0);
   const [tab, setTab] = useState<Tab>('About');
-  const [isFav, setIsFav] = useState(false);
+  const favorite = isFavorite(property.id);
+  const galleryImages = property.images.length ? property.images : [null];
+  const propertyConversation = getConversationForProperty(conversations, property.id);
+  const openConversation = () => {
+    if (propertyConversation) {
+      navigation.navigate('Chat', { convId: propertyConversation.id });
+      return;
+    }
+    Alert.alert('Conversation unavailable', 'No conversation is linked to this property. External messaging is not connected.');
+  };
 
   return (
     <View style={styles.container}>
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: 120 }}
+        contentContainerStyle={{ paddingBottom: 100 + insets.bottom + Math.min(fontScale, 2) * 16 }}
       >
         {/* Image gallery */}
         <View style={styles.gallery}>
           <FlatList
             horizontal
             pagingEnabled
-            data={property.images}
+            data={galleryImages}
             keyExtractor={(_, i) => String(i)}
             showsHorizontalScrollIndicator={false}
             onMomentumScrollEnd={(e) =>
@@ -48,11 +62,12 @@ export default function PropertyScreen({ navigation, route }: Props) {
                 Math.round(e.nativeEvent.contentOffset.x / width)
               )
             }
-            renderItem={({ item }) => (
-              <Image
-                source={{ uri: item }}
+            renderItem={({ item, index }) => (
+              <RemoteImage
+                source={item ? { uri: item } : null}
                 style={{ width, height: 260 }}
-                contentFit="cover"
+                accessibilityLabel={`${property.name} gallery image ${index + 1} of ${galleryImages.length}`}
+                fallbackLabel={`${property.name} image unavailable`}
               />
             )}
           />
@@ -63,47 +78,22 @@ export default function PropertyScreen({ navigation, route }: Props) {
               { paddingTop: insets.top + 8 },
             ]}
           >
-            {/* Back button */}
-            <TouchableOpacity
-              style={styles.backBtn}
-              onPress={() => navigation.goBack()}
-            >
-              <Ionicons
-                name="arrow-back-outline"
-                size={22}
-                color={Colors.slate700}
-              />
-            </TouchableOpacity>
-
-            {/* Favorite button */}
-            <TouchableOpacity
-              style={[
-                styles.favBtn,
-                isFav && styles.favBtnActive,
-              ]}
-              onPress={() => setIsFav(!isFav)}
-            >
-              <Text>
-                {isFav ? (
-                  <Ionicons
-                    name="heart"
-                    size={24}
-                    color="#fffefe"
-                  />
-                ) : (
-                  <Ionicons
-                    name="heart-outline"
-                    size={24}
-                    color="#000"
-                  />
-                )}
-              </Text>
-            </TouchableOpacity>
+            <IconButton icon="arrow-back" label="Go back" onPress={() => navigation.goBack()} backgroundColor="rgba(255,255,255,0.92)" />
+            <IconButton
+              icon={favorite ? 'heart' : 'heart-outline'}
+              label={favorite ? `Remove ${property.name} from favorites` : `Add ${property.name} to favorites`}
+              selected={favorite}
+              color={Colors.slate900}
+              selectedColor={Colors.white}
+              backgroundColor="rgba(255,255,255,0.92)"
+              selectedBackgroundColor={Colors.red500}
+              onPress={() => toggleFavorite(property.id)}
+            />
           </View>
 
           {/* Image dots */}
           <View style={styles.dots}>
-            {property.images.map((_, i) => (
+            {galleryImages.map((_, i) => (
               <View
                 key={i}
                 style={[
@@ -155,6 +145,8 @@ export default function PropertyScreen({ navigation, route }: Props) {
               key={t}
               onPress={() => setTab(t)}
               style={styles.tabItem}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: tab === t }}
             >
               <Text
                 style={[
@@ -209,12 +201,13 @@ export default function PropertyScreen({ navigation, route }: Props) {
                 </Text>
 
                 <View style={styles.mapPlaceholder}>
-                  <Image
+                  <RemoteImage
                     source={{
                       uri: 'https://images.unsplash.com/photo-1524661135-423995f22d0b?w=600&h=200&fit=crop&auto=format',
                     }}
-                    style={StyleSheet.absoluteFillObject}
-                    contentFit="cover"
+                    style={StyleSheet.absoluteFill}
+                    decorative
+                    retryable={false}
                   />
 
                   <View style={styles.mapOverlay} />
@@ -248,7 +241,7 @@ export default function PropertyScreen({ navigation, route }: Props) {
                   Property Manager
                 </Text>
 
-                <View style={styles.managerCard}>
+                <View style={[styles.managerCard, width < 360 && styles.managerCardCompact]}>
                   <View style={styles.managerAvatar}>
                     <Text style={styles.managerAvatarText}>
                       {property.manager.name
@@ -279,14 +272,11 @@ export default function PropertyScreen({ navigation, route }: Props) {
 
                   <Btn
                     variant="secondary"
-                    onPress={() =>
-                      (navigation as any).navigate('Chat', {
-                        convId: 'c1',
-                      })
-                    }
-                    style={styles.msgBtn}
+                    accessibilityHint={propertyConversation ? `Opens your conversation about ${property.name}` : 'Explains that no conversation is linked to this property'}
+                    onPress={openConversation}
+                    style={[styles.msgBtn, width < 360 && styles.msgBtnCompact]}
                   >
-                    Message
+                    {propertyConversation ? 'Message' : 'Message unavailable'}
                   </Btn>
                 </View>
               </View>
@@ -299,7 +289,7 @@ export default function PropertyScreen({ navigation, route }: Props) {
               {property.rooms.map((r) => (
                 <View key={r.id} style={styles.roomCard}>
                   <View style={styles.roomTop}>
-                    <View>
+                    <View style={styles.roomCopy}>
                       <Text style={styles.roomType}>
                         {r.type} Room
                       </Text>
@@ -338,6 +328,7 @@ export default function PropertyScreen({ navigation, route }: Props) {
                       onPress={() =>
                         navigation.navigate('Apply', {
                           property,
+                          selectedRoomId: r.id,
                         })
                       }
                       disabled={r.available === 0}
@@ -470,22 +461,13 @@ export default function PropertyScreen({ navigation, route }: Props) {
       >
         <Btn
           variant="secondary"
-          onPress={() => setIsFav(!isFav)}
+          accessibilityLabel={favorite ? `Remove ${property.name} from favorites` : `Add ${property.name} to favorites`}
+          selected={favorite}
+          onPress={() => toggleFavorite(property.id)}
           style={styles.saveBtn}
         >
-          {isFav ? (
-            <Ionicons
-              name="heart"
-              size={24}
-              color="#fe0000"
-            />
-          ) : (
-            <Ionicons
-              name="heart-outline"
-              size={24}
-              color="#000"
-            />
-          )}
+          <Ionicons name={favorite ? 'heart' : 'heart-outline'} size={22} color={favorite ? Colors.red600 : Colors.slate900} />
+          <Text style={styles.saveText}>{favorite ? 'Saved' : 'Save'}</Text>
         </Btn>
 
         <Btn
@@ -522,28 +504,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
 
-  backBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.9)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  favBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.9)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  favBtnActive: {
-    backgroundColor: Colors.red500,
-  },
-
   dots: {
     position: 'absolute',
     bottom: 10,
@@ -567,7 +527,7 @@ const styles = StyleSheet.create({
   },
 
   dot2: {
-    color: Colors.slate400,
+    color: TextColors.muted,
     marginHorizontal: 4,
   },
 
@@ -578,6 +538,7 @@ const styles = StyleSheet.create({
 
   badgeRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 8,
   },
 
@@ -595,13 +556,14 @@ const styles = StyleSheet.create({
 
   ratingRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     alignItems: 'center',
     gap: 8,
   },
 
   reviewCount: {
     fontSize: 13,
-    color: Colors.slate400,
+    color: TextColors.muted,
     fontFamily: Fonts.body,
   },
 
@@ -615,7 +577,7 @@ const styles = StyleSheet.create({
   priceSub: {
     fontSize: 16,
     fontFamily: Fonts.body,
-    color: Colors.slate400,
+    color: TextColors.muted,
   },
 
   tabBar: {
@@ -633,7 +595,7 @@ const styles = StyleSheet.create({
   tabText: {
     fontSize: 14,
     fontFamily: Fonts.bodyMed,
-    color: Colors.slate400,
+    color: TextColors.muted,
   },
 
   tabTextActive: {
@@ -678,7 +640,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    width: '45%',
+    flexGrow: 1,
+    flexBasis: '45%',
+    minWidth: 140,
   },
 
   amenityIcon: {
@@ -701,7 +665,7 @@ const styles = StyleSheet.create({
   },
 
   mapOverlay: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: 'rgba(0,0,0,0.35)',
   },
 
@@ -752,6 +716,10 @@ const styles = StyleSheet.create({
     borderColor: Colors.slate100,
   },
 
+  managerCardCompact: {
+    flexWrap: 'wrap',
+  },
+
   managerAvatar: {
     width: 48,
     height: 48,
@@ -786,13 +754,17 @@ const styles = StyleSheet.create({
 
   managerResponse: {
     fontSize: 11,
-    color: Colors.slate400,
+    color: TextColors.muted,
     fontFamily: Fonts.body,
   },
 
   msgBtn: {
     paddingVertical: 8,
     paddingHorizontal: 12,
+  },
+
+  msgBtnCompact: {
+    width: '100%',
   },
 
   roomCard: {
@@ -807,7 +779,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
+    gap: 8,
   },
+
+  roomCopy: { flex: 1, minWidth: 0 },
 
   roomType: {
     fontSize: 15,
@@ -820,12 +795,15 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.body,
     color: Colors.slate500,
     marginTop: 2,
+    lineHeight: 18,
   },
 
   roomFooter: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     justifyContent: 'space-between',
     alignItems: 'center',
+    gap: 8,
   },
 
   roomPrice: {
@@ -837,7 +815,7 @@ const styles = StyleSheet.create({
   roomPriceSub: {
     fontSize: 13,
     fontFamily: Fonts.body,
-    color: Colors.slate400,
+    color: TextColors.muted,
   },
 
   applyBtn: {
@@ -871,7 +849,7 @@ const styles = StyleSheet.create({
 
   ratingCount: {
     fontSize: 11,
-    color: Colors.slate400,
+    color: TextColors.muted,
     fontFamily: Fonts.body,
   },
 
@@ -944,7 +922,7 @@ const styles = StyleSheet.create({
 
   reviewTime: {
     fontSize: 11,
-    color: Colors.slate400,
+    color: TextColors.muted,
     fontFamily: Fonts.body,
   },
 
@@ -971,6 +949,12 @@ const styles = StyleSheet.create({
 
   saveBtn: {
     flex: 1,
+  },
+
+  saveText: {
+    fontSize: 14,
+    fontFamily: Fonts.bodySemi,
+    color: Colors.slate900,
   },
 
   applyNowBtn: {

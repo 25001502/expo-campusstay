@@ -1,0 +1,32 @@
+name: Technical baseline
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run test:baseline
+      - run: npm run test:ui
+      - run: npm run test:discovery
+      - run: npm run test:application
+      - run: npm run test:phase-d
+      - run: npm run test:phase-e
+      - run: npm run test:phase-f
+      - run: npm run lint
+      - run: npm run check:dependencies
+      - run: npm run export:check
+        env:
+          CI: '1'

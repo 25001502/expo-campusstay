@@ -204,6 +204,7 @@ export type Conversation = {
   id: string;
   manager: string;
   property: string;
+  propertyId?: string;
   avatar: string;
   lastMessage: string;
   time: string;
@@ -223,28 +224,30 @@ export const conversations: Conversation[] = [
     id: 'c1',
     manager: 'Thabo Mkhize',
     property: 'Campus View Residence',
+    propertyId: 'p1',
     avatar: 'TM',
     lastMessage: 'Yes, we currently have two private rooms available for September.',
     time: '10:32',
     unread: 2,
     messages: [
-      { id: 'm1', sender: 'student', text: 'Hi, is a private room available for September?', time: '10:28' },
-      { id: 'm2', sender: 'manager', text: 'Hi! Thanks for reaching out. Yes, we currently have two private rooms available for September.', time: '10:30' },
-      { id: 'm3', sender: 'manager', text: 'Both are en-suite and fully furnished. Would you like to schedule a viewing?', time: '10:32' },
+      { id: 'c1-m1', sender: 'student', text: 'Hi, is a private room available for September?', time: '10:28' },
+      { id: 'c1-m2', sender: 'manager', text: 'Hi! Thanks for reaching out. Yes, we currently have two private rooms available for September.', time: '10:30' },
+      { id: 'c1-m3', sender: 'manager', text: 'Both are en-suite and fully furnished. Would you like to schedule a viewing?', time: '10:32' },
     ],
   },
   {
     id: 'c2',
     manager: 'Priya Naidoo',
     property: 'Varsity Heights',
+    propertyId: 'p2',
     avatar: 'PN',
     lastMessage: 'The application process takes about 3–5 business days.',
     time: 'Yesterday',
     unread: 0,
     messages: [
-      { id: 'm1', sender: 'student', text: 'What documents do I need to apply?', time: 'Yesterday' },
-      { id: 'm2', sender: 'manager', text: 'You will need your student ID, proof of registration, and proof of funding.', time: 'Yesterday' },
-      { id: 'm3', sender: 'manager', text: 'The application process takes about 3–5 business days.', time: 'Yesterday' },
+      { id: 'c2-m1', sender: 'student', text: 'What documents do I need to apply?', time: 'Yesterday' },
+      { id: 'c2-m2', sender: 'manager', text: 'You will need your student ID, proof of registration, and proof of funding.', time: 'Yesterday' },
+      { id: 'c2-m3', sender: 'manager', text: 'The application process takes about 3–5 business days.', time: 'Yesterday' },
     ],
   },
 ];
@@ -259,9 +262,9 @@ export type AppNotification = {
 };
 
 export const notifications: AppNotification[] = [
-  { id: 'n1', type: 'booking', title: 'Application Approved!', message: 'Your application for Campus View Residence has been approved. Welcome home!', time: '2 min ago', read: false },
-  { id: 'n2', type: 'payment', title: 'Payment Due Soon', message: 'Your rent payment of R3,500 is due in 3 days.', time: '1 hour ago', read: false },
-  { id: 'n3', type: 'message', title: 'New Message', message: 'Thabo Mkhize sent you a message about Campus View Residence.', time: '3 hours ago', read: true },
-  { id: 'n4', type: 'application', title: 'Documents Verified', message: 'Your uploaded documents for Varsity Heights have been verified.', time: 'Yesterday', read: true },
-  { id: 'n5', type: 'system', title: 'Profile Updated', message: 'Your student profile has been successfully updated.', time: '2 days ago', read: true },
+  { id: 'n1', type: 'booking', title: 'Application Status', message: 'Review your Campus View Residence application information.', time: '2 min ago', read: false },
+  { id: 'n2', type: 'payment', title: 'Rent Reminder', message: 'Review the R3,500 rent amount shown in your booking record.', time: '1 hour ago', read: false },
+  { id: 'n3', type: 'message', title: 'Conversation Update', message: 'Review the conversation about Campus View Residence.', time: '3 hours ago', read: true },
+  { id: 'n4', type: 'application', title: 'Document Checklist', message: 'Review the document categories selected for Varsity Heights.', time: 'Yesterday', read: true },
+  { id: 'n5', type: 'system', title: 'Profile Information', message: 'Review your current student profile details.', time: '2 days ago', read: true },
 ];

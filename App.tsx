@@ -1,11 +1,11 @@
 import 'react-native-gesture-handler';
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
-import { Text, View } from 'react-native';
+import { ActivityIndicator, Text, useWindowDimensions, View } from 'react-native';
 import {
   useFonts,
   Outfit_400Regular,
@@ -20,8 +20,10 @@ import {
 } from '@expo-google-fonts/inter';
 
 import { Colors, Fonts } from './src/theme';
-import { Property } from './src/data';
-import {Ionicons} from '@expo/vector-icons';
+import type { MainTabParamList, RootStackParamList } from './src/navigation/types';
+import { FavoritesProvider } from './src/state/FavoritesContext';
+import { ApplicationProvider } from './src/state/ApplicationContext';
+import { CommunicationProvider, useCommunication } from './src/state/CommunicationContext';
 
 // Screens
 import SplashScreen from './src/screens/SplashScreen';
@@ -54,53 +56,15 @@ import {
   faUser,
 } from "@fortawesome/free-solid-svg-icons";
 
-// ─── Navigation Types ─────────────────────────────────────────────────────────
-export type RootStackParamList = {
-  Splash: undefined;
-  Onboarding: undefined;
-  Login: undefined;
-  Register: undefined;
-  Forgot: undefined;
-  Main: undefined;
-  Property: { property: Property };
-  Apply: { property: Property };
-  AppStatus: { property: Property };
-  Compare: { ids: string[] };
-  Chat: { convId: string };
-  Notifications: undefined;
-  Manager: undefined;
-};
-
-export type MainTabParamList = {
-  Home: undefined;
-  Explore: undefined;
-  Favorites: undefined;
-  Bookings: undefined;
-  Messages: undefined;
-  Profile: undefined;
-};
-
 const Stack = createNativeStackNavigator<RootStackParamList>();
 const Tab = createBottomTabNavigator<MainTabParamList>();
 
-const HomeTabScreen = HomeScreen as React.ComponentType<any>;
-const ExploreTabScreen = ExploreScreen as React.ComponentType<any>;
-const FavoritesTabScreen = FavoritesScreen as React.ComponentType<any>;
-const BookingsTabScreen = BookingsScreen as React.ComponentType<any>;
-const MessagesTabScreen = MessagesScreen as React.ComponentType<any>;
-const ProfileTabScreen = ProfileScreen as React.ComponentType<any>;
-
-// ─── Tab icon helper ──────────────────────────────────────────────────────────
-function TabIcon({ icon, focused }: { icon: string; focused: boolean }) {
-  return (
-    <View style={{ alignItems: 'center', justifyContent: 'center' }}>
-      <Text style={{ fontSize: 20, opacity: focused ? 1 : 0.45 }}>{icon}</Text>
-    </View>
-  );
-}
-
 // ─── Main bottom tabs ─────────────────────────────────────────────────────────
 function MainTabs() {
+  const { unreadMessageCount } = useCommunication();
+  const insets = useSafeAreaInsets();
+  const { fontScale } = useWindowDimensions();
+  const tabBarHeight = 54 + Math.max(insets.bottom, 8) + Math.max(0, Math.min(fontScale, 2) - 1) * 18;
   return (
     <Tab.Navigator
   screenOptions={{
@@ -113,8 +77,8 @@ function MainTabs() {
       backgroundColor: Colors.white,
       borderTopColor: Colors.slate100,
       borderTopWidth: 1,
-      height: 62,
-      paddingBottom: 8,
+      height: tabBarHeight,
+      paddingBottom: Math.max(insets.bottom, 8),
       paddingTop: 4,
     },
 
@@ -126,7 +90,7 @@ function MainTabs() {
 >
   <Tab.Screen
     name="Home"
-    component={HomeTabScreen}
+    component={HomeScreen}
     options={{
       tabBarIcon: ({ color, size }) => (
         <FontAwesomeIcon
@@ -140,7 +104,7 @@ function MainTabs() {
 
   <Tab.Screen
     name="Explore"
-    component={ExploreTabScreen}
+    component={ExploreScreen}
     options={{
       tabBarIcon: ({ color, size }) => (
         <FontAwesomeIcon
@@ -154,7 +118,7 @@ function MainTabs() {
 
   <Tab.Screen
     name="Favorites"
-    component={FavoritesTabScreen}
+    component={FavoritesScreen}
     options={{
       tabBarIcon: ({ color, size }) => (
         <FontAwesomeIcon
@@ -168,7 +132,7 @@ function MainTabs() {
 
   <Tab.Screen
     name="Bookings"
-    component={BookingsTabScreen}
+    component={BookingsScreen}
     options={{
       tabBarIcon: ({ color, size }) => (
         <FontAwesomeIcon
@@ -182,8 +146,9 @@ function MainTabs() {
 
   <Tab.Screen
     name="Messages"
-    component={MessagesTabScreen}
+    component={MessagesScreen}
     options={{
+      tabBarBadge: unreadMessageCount || undefined,
       tabBarIcon: ({ color, size }) => (
         <FontAwesomeIcon
           icon={faComments}
@@ -196,7 +161,7 @@ function MainTabs() {
 
   <Tab.Screen
     name="Profile"
-    component={ProfileTabScreen}
+    component={ProfileScreen}
     options={{
       tabBarIcon: ({ color, size }) => (
         <FontAwesomeIcon
@@ -213,7 +178,7 @@ function MainTabs() {
 
 // ─── Root App ─────────────────────────────────────────────────────────────────
 export default function App() {
-  const [fontsLoaded] = useFonts({
+  const [fontsLoaded, fontError] = useFonts({
     Outfit_400Regular,
     Outfit_500Medium,
     Outfit_600SemiBold,
@@ -223,13 +188,40 @@ export default function App() {
     Inter_600SemiBold,
   });
 
-  if (!fontsLoaded) return null;
+  const [fontWaitExpired, setFontWaitExpired] = useState(false);
+
+  useEffect(() => {
+    if (fontsLoaded || fontError || fontWaitExpired) return;
+    const timer = setTimeout(() => setFontWaitExpired(true), 10000);
+    return () => clearTimeout(timer);
+  }, [fontsLoaded, fontError, fontWaitExpired]);
+
+  useEffect(() => {
+    if (fontError) {
+      console.warn('CampusStay fonts could not load; continuing with system fonts.', fontError);
+    } else if (fontWaitExpired && !fontsLoaded) {
+      console.warn('CampusStay font loading timed out; continuing with system fonts.');
+    }
+  }, [fontError, fontWaitExpired, fontsLoaded]);
+
+  if (!fontsLoaded && !fontError && !fontWaitExpired) {
+    return (
+      <View style={{ flex: 1, backgroundColor: Colors.navy, alignItems: 'center', justifyContent: 'center', gap: 16 }}>
+        <StatusBar style="light" />
+        <ActivityIndicator color={Colors.white} accessibilityLabel="Loading CampusStay" />
+        <Text style={{ color: Colors.white, fontSize: 20 }}>CampusStay</Text>
+      </View>
+    );
+  }
 
   return (
     <SafeAreaProvider>
       <StatusBar style="light" />
-      <NavigationContainer>
-        <Stack.Navigator screenOptions={{ headerShown: false, animation: 'slide_from_right' }}>
+      <FavoritesProvider>
+        <ApplicationProvider>
+          <CommunicationProvider>
+          <NavigationContainer>
+          <Stack.Navigator initialRouteName="Main" screenOptions={{ headerShown: false, animation: 'slide_from_right' }}>
           <Stack.Screen name="Splash" component={SplashScreen} />
           <Stack.Screen name="Onboarding" component={OnboardingScreen} />
           <Stack.Screen name="Login" component={LoginScreen} />
@@ -243,8 +235,11 @@ export default function App() {
           <Stack.Screen name="Chat" component={ChatScreen} />
           <Stack.Screen name="Notifications" component={NotificationsScreen} />
           <Stack.Screen name="Manager" component={ManagerScreen} />
-        </Stack.Navigator>
-      </NavigationContainer>
+          </Stack.Navigator>
+          </NavigationContainer>
+          </CommunicationProvider>
+        </ApplicationProvider>
+      </FavoritesProvider>
     </SafeAreaProvider>
   );
 }

@@ -1,178 +1,146 @@
 import React from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
-import { Image } from 'expo-image';
+import { ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { StatusBar } from 'expo-status-bar';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { RootStackParamList } from '../../App';
-import { Colors, Fonts, Radius, Shadow } from '../theme';
-import { properties } from '../data';
+import type { RootStackParamList } from '../navigation/types';
+import { Colors, Fonts, Radius, Shadow, Spacing, TextColors } from '../theme';
+import { Badge, Btn, EmptyState, ScreenHeader } from '../components/UI';
+import { RemoteImage } from '../components/RemoteImage';
+import { getBestPropertyIds, getPropertyById } from '../discovery';
+import type { Property } from '../data';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Compare'>;
 
 const AMENITY_LIST = ['Wi-Fi', 'Security', 'Gym', 'Parking', 'Laundry', 'Study Area', 'Kitchen'];
 
+type Attribute = {
+  label: string;
+  direction: 'lower' | 'higher';
+  numeric: (property: Property) => number | null | undefined;
+  display: (property: Property) => string;
+};
+
+const ATTRIBUTES: Attribute[] = [
+  { label: 'Monthly Rent', direction: 'lower', numeric: (property) => property.price, display: (property) => `R${property.price.toLocaleString()}` },
+  { label: 'Distance', direction: 'lower', numeric: (property) => property.distance, display: (property) => `${property.distance} km` },
+  { label: 'Rating', direction: 'higher', numeric: (property) => property.rating, display: (property) => `${property.rating}★` },
+  { label: 'Available', direction: 'higher', numeric: (property) => property.available, display: (property) => `${property.available} rooms` },
+];
+
 export default function CompareScreen({ navigation, route }: Props) {
-  const { ids } = route.params;
   const insets = useSafeAreaInsets();
-  const props = properties.filter((p) => ids.includes(p.id));
-
-  const attrs = [
-    { label: 'Monthly Rent', getValue: (p: typeof props[0]) => `R${p.price.toLocaleString()}`, lower: true },
-    { label: 'Distance', getValue: (p: typeof props[0]) => `${p.distance} km`, lower: true },
-    { label: 'Rating', getValue: (p: typeof props[0]) => `${p.rating}★`, lower: false },
-    { label: 'Available', getValue: (p: typeof props[0]) => `${p.available} rooms`, lower: false },
-  ];
-
-  const getBestIdx = (values: string[], lower: boolean) => {
-    const nums = values.map((v) => parseFloat(v.replace(/[^0-9.]/g, '')));
-    const best = lower ? Math.min(...nums) : Math.max(...nums);
-    return nums.indexOf(best);
-  };
-
-  const COL_W = 140;
+  const { width } = useWindowDimensions();
+  const uniqueIds = [...new Set(route.params.ids)];
+  const compared = uniqueIds.map(getPropertyById).filter((property): property is Property => !!property);
+  const columnWidth = Math.min(190, Math.max(150, width * 0.48));
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
-      <View style={styles.topBar}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
-          <Text style={styles.backText}>←</Text>
-        </TouchableOpacity>
-        <Text style={styles.topTitle}>Compare Accommodation</Text>
-        <View style={{ width: 24 }} />
-      </View>
-
-      <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: 16, paddingBottom: 60 }}>
-          {/* Property headers */}
-          <View style={styles.row}>
-            <View style={[styles.labelCol]} />
-            {props.map((p) => (
-              <View key={p.id} style={[styles.col, { width: COL_W }]}>
-                <Image source={{ uri: p.images[0] }} style={styles.propImage} contentFit="cover" />
-                <Text style={styles.propName} numberOfLines={2}>{p.name}</Text>
-                <Text style={styles.propCity}>{p.city}</Text>
-              </View>
-            ))}
+      <StatusBar style="dark" />
+      <ScreenHeader title="Compare Accommodation" onBack={() => navigation.goBack()} />
+      {compared.length < 2 ? (
+        <EmptyState
+          icon={<Ionicons name="git-compare-outline" size={44} color={Colors.slate500} />}
+          title="Choose at least two properties"
+          description="Return to Favorites and select two or three saved properties to compare."
+          actionLabel="Back to Favorites"
+          onAction={() => navigation.goBack()}
+        />
+      ) : (
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={[styles.page, { paddingBottom: insets.bottom + 32 }]}>
+          <View style={styles.scrollHint}>
+            <Ionicons name="swap-horizontal" size={18} color={Colors.slate600} />
+            <Text style={styles.scrollHintText}>Swipe sideways to compare every property.</Text>
           </View>
+          <ScrollView horizontal showsHorizontalScrollIndicator contentContainerStyle={styles.table}>
+            <View>
+              <View style={styles.row}>
+                <View style={styles.labelColumn} />
+                {compared.map((property) => {
+                  const availableRooms = property.rooms.filter((room) => room.available > 0);
+                  return (
+                    <View key={property.id} style={[styles.propertyColumn, { width: columnWidth }]}>
+                      <RemoteImage
+                        source={property.images[0] ? { uri: property.images[0] } : null}
+                        style={styles.propertyImage}
+                        accessibilityLabel={`${property.name} accommodation`}
+                        fallbackLabel={`${property.name} image unavailable`}
+                      />
+                      <Text accessibilityRole="header" style={styles.propertyName}>{property.name}</Text>
+                      <Text style={styles.propertyCity}>{property.city}</Text>
+                      <Btn variant="secondary" onPress={() => navigation.navigate('Property', { property })} style={styles.columnAction}>View Property</Btn>
+                      {availableRooms.length === 1 ? (
+                        <Btn onPress={() => navigation.navigate('Apply', { property, selectedRoomId: availableRooms[0].id })} style={styles.columnAction}>Apply</Btn>
+                      ) : null}
+                    </View>
+                  );
+                })}
+              </View>
 
-          {/* Attribute rows */}
-          {attrs.map((attr) => {
-            const vals = props.map((p) => attr.getValue(p));
-            const bestIdx = getBestIdx(vals, attr.lower);
-            return (
-              <View key={attr.label} style={[styles.row, styles.attrRow]}>
-                <View style={styles.labelCol}>
-                  <Text style={styles.attrLabel}>{attr.label}</Text>
-                </View>
-                {props.map((p, i) => (
-                  <View key={p.id} style={[styles.col, { width: COL_W }, i === bestIdx && styles.bestCol]}>
-                    <Text style={[styles.attrVal, i === bestIdx && styles.attrValBest]}>
-                      {attr.getValue(p)}
-                    </Text>
-                    {i === bestIdx && <Text style={styles.bestLabel}>Best</Text>}
+              {ATTRIBUTES.map((attribute) => {
+                const bestIds = getBestPropertyIds(compared, attribute.numeric, attribute.direction);
+                return (
+                  <View key={attribute.label} style={[styles.row, styles.attributeRow]}>
+                    <View style={styles.labelColumn}><Text style={styles.attributeLabel}>{attribute.label}</Text></View>
+                    {compared.map((property) => {
+                      const value = attribute.numeric(property);
+                      const isBest = value !== null && value !== undefined && bestIds.has(property.id);
+                      return (
+                        <View key={property.id} style={[styles.valueColumn, { width: columnWidth }, isBest && styles.bestColumn]}>
+                          <Text style={[styles.attributeValue, isBest && styles.bestValue]}>{value === null || value === undefined ? 'Not provided' : attribute.display(property)}</Text>
+                          {isBest ? <Badge label="Best" variant="blue" accessibilityLabel={`Best ${attribute.label}`} /> : null}
+                        </View>
+                      );
+                    })}
                   </View>
-                ))}
-              </View>
-            );
-          })}
+                );
+              })}
 
-          {/* Amenities */}
-          <Text style={styles.amenitiesTitle}>Amenities</Text>
-          {AMENITY_LIST.map((a) => (
-            <View key={a} style={[styles.row, styles.attrRow]}>
-              <View style={styles.labelCol}>
-                <Text style={styles.attrLabel}>{a}</Text>
-              </View>
-              {props.map((p) => (
-                <View key={p.id} style={[styles.col, { width: COL_W }, p.amenities.includes(a) && styles.amenityHas]}>
-                  <Text style={[styles.amenityCheck, p.amenities.includes(a) && styles.amenityCheckHas]}>
-                    {p.amenities.includes(a) ? '✓' : '—'}
-                  </Text>
+              <Text style={styles.amenitiesTitle}>Amenities</Text>
+              {AMENITY_LIST.map((amenity) => (
+                <View key={amenity} style={[styles.row, styles.attributeRow]}>
+                  <View style={styles.labelColumn}><Text style={styles.attributeLabel}>{amenity}</Text></View>
+                  {compared.map((property) => {
+                    const available = property.amenities.includes(amenity);
+                    return (
+                      <View key={property.id} style={[styles.valueColumn, { width: columnWidth }, available && styles.amenityAvailable]}>
+                        <Ionicons name={available ? 'checkmark-circle' : 'remove'} size={22} color={available ? '#166534' : Colors.slate500} />
+                        <Text style={styles.srValue}>{available ? 'Included' : 'Not included'}</Text>
+                      </View>
+                    );
+                  })}
                 </View>
               ))}
             </View>
-          ))}
+          </ScrollView>
         </ScrollView>
-      </ScrollView>
+      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
-  topBar: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    backgroundColor: Colors.white,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.slate100,
-  },
-  backText: { fontSize: 22, color: Colors.slate600, width: 24 },
-  topTitle: {
-    flex: 1,
-    textAlign: "center",
-    fontSize: 16,
-    fontFamily: Fonts.heading,
-    color: Colors.slate900,
-  },
-  row: { flexDirection: "row", gap: 8, marginBottom: 8 },
-  attrRow: { alignItems: "center" },
-  labelCol: { width: 100, justifyContent: "center" },
-  col: {
-    borderRadius: Radius.lg,
-    padding: 10,
-    backgroundColor: Colors.white,
-    alignItems: "center",
-    ...Shadow.sm,
-  },
-  bestCol: { backgroundColor: Colors.blue },
-  propImage: {
-    width: "100%",
-    height: 80,
-    borderRadius: Radius.md,
-    marginBottom: 8,
-  },
-  propName: {
-    fontSize: 12,
-    fontFamily: Fonts.heading,
-    color: Colors.slate900,
-    textAlign: "center",
-  },
-  propCity: {
-    fontSize: 11,
-    fontFamily: Fonts.body,
-    color: Colors.slate400,
-    textAlign: "center",
-    marginTop: 2,
-  },
-  attrLabel: {
-    fontSize: 12,
-    fontFamily: Fonts.bodyMed,
-    color: Colors.slate500,
-  },
-  attrVal: {
-    fontSize: 14,
-    fontFamily: Fonts.heading,
-    color: Colors.slate800,
-    textAlign: "center",
-  },
-  attrValBest: { color: Colors.white },
-  bestLabel: {
-    fontSize: 10,
-    fontFamily: Fonts.bodyMed,
-    color: "rgba(255,255,255,0.7)",
-    marginTop: 2,
-  },
-  amenitiesTitle: {
-    fontSize: 15,
-    fontFamily: Fonts.heading,
-    color: Colors.slate900,
-    marginTop: 12,
-    marginBottom: 8,
-  },
-  amenityHas: { backgroundColor: Colors.green100 },
-  amenityCheck: { fontSize: 16, color: Colors.slate300 },
-  amenityCheckHas: { color: Colors.green600 },
+  page: { paddingVertical: Spacing.md },
+  scrollHint: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, paddingHorizontal: Spacing.lg, paddingBottom: Spacing.md },
+  scrollHintText: { fontSize: 12, lineHeight: 17, fontFamily: Fonts.body, color: TextColors.muted },
+  table: { paddingHorizontal: Spacing.lg, paddingBottom: Spacing.lg },
+  row: { flexDirection: 'row', gap: Spacing.sm, marginBottom: Spacing.sm },
+  attributeRow: { alignItems: 'stretch' },
+  labelColumn: { width: 104, justifyContent: 'center', paddingHorizontal: Spacing.xs },
+  propertyColumn: { borderRadius: Radius.lg, padding: 10, gap: Spacing.sm, backgroundColor: Colors.white, alignItems: 'stretch', ...Shadow.sm },
+  propertyImage: { width: '100%', aspectRatio: 1.55, borderRadius: Radius.md },
+  propertyName: { minHeight: 42, fontSize: 13, lineHeight: 18, fontFamily: Fonts.heading, color: TextColors.primary, textAlign: 'center' },
+  propertyCity: { fontSize: 11, lineHeight: 16, fontFamily: Fonts.body, color: TextColors.muted, textAlign: 'center' },
+  columnAction: { paddingHorizontal: Spacing.sm, paddingVertical: Spacing.sm },
+  valueColumn: { minHeight: 72, borderRadius: Radius.lg, padding: 10, gap: 4, backgroundColor: Colors.white, alignItems: 'center', justifyContent: 'center', ...Shadow.sm },
+  bestColumn: { backgroundColor: Colors.blue100, borderWidth: 1, borderColor: Colors.blue },
+  attributeLabel: { fontSize: 12, lineHeight: 17, fontFamily: Fonts.bodyMed, color: TextColors.secondary },
+  attributeValue: { fontSize: 14, lineHeight: 20, fontFamily: Fonts.heading, color: TextColors.primary, textAlign: 'center' },
+  bestValue: { color: TextColors.link },
+  amenitiesTitle: { fontSize: 15, lineHeight: 21, fontFamily: Fonts.heading, color: TextColors.primary, marginTop: Spacing.md, marginBottom: Spacing.sm, paddingLeft: Spacing.xs },
+  amenityAvailable: { backgroundColor: Colors.green100 },
+  srValue: { fontSize: 11, lineHeight: 16, fontFamily: Fonts.body, color: TextColors.secondary, textAlign: 'center' },
 });
