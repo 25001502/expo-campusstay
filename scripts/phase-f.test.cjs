@@ -74,10 +74,13 @@ test('onboarding uses live viewport dimensions and exposes its skip action', () 
 });
 
 test('large text receives adaptive student and manager navigation height', () => {
-  assert.match(source('App.tsx'), /tabBarHeight/);
+  const app = source('App.tsx');
+  assert.match(app, /tabBarHeight/);
+  assert.match(app, /maxFontSizeMultiplier=\{1\.2\}/);
   const managerScreen = source('src/screens/ManagerScreen.tsx');
   assert.match(managerScreen, /fontScale >= 1\.5/);
   assert.match(managerScreen, /navigationHeight/);
+  assert.match(managerScreen, /maxFontSizeMultiplier=\{1\.2\}/);
 });
 
 test('discovery filters remain scrollable on a constrained viewport', () => {
