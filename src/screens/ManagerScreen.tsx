@@ -1,642 +1,152 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, FlatList, Dimensions } from 'react-native';
-import { Image } from 'expo-image';
+import React, { useMemo, useReducer, useState } from 'react';
+import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { Picker } from '@react-native-picker/picker';
+import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { RootStackParamList } from '../../App';
-import { Colors, Fonts, Radius, Shadow } from '../theme';
-import { Badge, Btn } from '../components/UI';
-import { properties } from '../data';
+import { Btn, EmptyState, IconButton, Input, StatusBadge } from '../components/UI';
+import { RemoteImage } from '../components/RemoteImage';
+import { universities, type Property, type Room } from '../data';
+import {
+  createManagerProperty, createManagerState, emptyPropertyForm, filterManagerApplications,
+  filterManagerProperties, filterManagerTenants, getManagerMetrics, getPropertyAnalytics,
+  getPropertyAvailableRooms, managerReducer, propertyToForm, updateManagerProperty,
+  validatePropertyForm, validateRoomEdit, type ManagerApplication, type ManagerApplicationFilter,
+  type ManagerPropertyFilter, type PropertyFormFields, type RoomEditFields,
+} from '../manager';
+import type { RootStackParamList } from '../navigation/types';
+import { Colors, Fonts, Radius, Shadow, Spacing, TextColors } from '../theme';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Manager'>;
-type MgrPage = 'dashboard' | 'properties' | 'applications' | 'tenants' | 'analytics';
+type ManagerPage = 'dashboard' | 'properties' | 'applications' | 'more' | 'tenants' | 'analytics' | 'settings';
+type EditorMode = 'add' | 'edit' | null;
 
-const apps = [
-  { id: 1, student: 'Thabo Sithole', property: 'Campus View Residence', room: 'Private Room', submitted: '2 days ago', docs: '4/4', status: 'Pending' },
-  { id: 2, student: 'Naledi Mokoena', property: 'Campus View Residence', room: 'Shared Room', submitted: '1 day ago', docs: '3/4', status: 'Under Review' },
-  { id: 3, student: 'Keanu Williams', property: 'Varsity Heights', room: 'Studio', submitted: '5 days ago', docs: '4/4', status: 'Approved' },
-  { id: 4, student: 'Amara Osei', property: 'Varsity Heights', room: 'Private Room', submitted: '1 week ago', docs: '2/4', status: 'Rejected' },
+const primaryNavigation: { key: ManagerPage; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
+  { key: 'dashboard', label: 'Dashboard', icon: 'grid-outline' },
+  { key: 'properties', label: 'Properties', icon: 'business-outline' },
+  { key: 'applications', label: 'Applications', icon: 'document-text-outline' },
+  { key: 'more', label: 'More', icon: 'ellipsis-horizontal-circle-outline' },
 ];
-
-const stats = [
-  { label: 'Total Properties', value: '5', icon: '🏢', bg: Colors.blue100 },
-  { label: 'Total Rooms', value: '42', icon: '🚪', bg: Colors.purple100 },
-  { label: 'Occupied', value: '35', icon: '✅', bg: Colors.green100 },
-  { label: 'Pending Apps', value: '8', icon: '🔔', bg: Colors.amber100 },
-  { label: 'Available Rooms', value: '7', icon: '🏠', bg: '#CCFBF1' },
-  { label: 'Monthly Revenue', value: 'R142,500', icon: '📈', bg: Colors.emerald100 },
-];
-
-const occupancy = [72, 81, 88, 92, 95, 83];
-const months = ['Aug', 'Sep', 'Oct', 'Nov', 'Dec', 'Jan'];
-
-const statusVariant: Record<string, 'green' | 'amber' | 'red' | 'blue'> = {
-  Approved: 'green',
-  Pending: 'amber',
-  Rejected: 'red',
-  'Under Review': 'blue',
-};
-
-const navItems: { key: MgrPage; label: string; icon: string }[] = [
-  { key: 'dashboard', label: 'Dashboard', icon: '🏠' },
-  { key: 'properties', label: 'Properties', icon: '🏢' },
-  { key: 'applications', label: 'Applications', icon: '📋' },
-  { key: 'tenants', label: 'Tenants', icon: '👥' },
-  { key: 'analytics', label: 'Analytics', icon: '📈' },
-];
+const applicationVariants: Record<ManagerApplication['status'], 'amber' | 'blue' | 'green'> = { New: 'amber', 'In review': 'blue', 'Review complete': 'green' };
 
 export default function ManagerScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
-  const [page, setPage] = useState<MgrPage>('dashboard');
-  const [selectedApp, setSelectedApp] = useState<number | null>(null);
+  const { width, fontScale } = useWindowDimensions();
+  const [state, dispatch] = useReducer(managerReducer, undefined, () => createManagerState());
+  const [page, setPage] = useState<ManagerPage>('dashboard');
+  const [selectedPropertyId, setSelectedPropertyId] = useState<string>();
+  const [selectedApplicationId, setSelectedApplicationId] = useState<string>();
+  const [propertyQuery, setPropertyQuery] = useState('');
+  const [propertyFilter, setPropertyFilter] = useState<ManagerPropertyFilter>('all');
+  const [applicationFilter, setApplicationFilter] = useState<ManagerApplicationFilter>('All');
+  const [tenantQuery, setTenantQuery] = useState('');
+  const [tenantPropertyId, setTenantPropertyId] = useState('');
+  const [editorMode, setEditorMode] = useState<EditorMode>(null);
+  const [form, setForm] = useState<PropertyFormFields>(emptyPropertyForm());
+  const [formErrors, setFormErrors] = useState<ReturnType<typeof validatePropertyForm>>({});
+  const [reviewNote, setReviewNote] = useState('');
 
-  return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
-      {/* Top bar */}
-      <View style={styles.topBar}>
-        <View style={styles.brand}>
-          <View style={styles.brandIcon}>
-            <Text style={styles.brandIconText}>🏠</Text>
-          </View>
-          <Text style={styles.brandName}>Manager Portal</Text>
-        </View>
-        <View style={styles.mgAvatar}>
-          <Text style={styles.mgAvatarText}>TM</Text>
-        </View>
-      </View>
+  const metrics = useMemo(() => getManagerMetrics(state), [state]);
+  const filteredProperties = useMemo(() => filterManagerProperties(state.properties, propertyQuery, propertyFilter), [propertyFilter, propertyQuery, state.properties]);
+  const scopedApplications = useMemo(() => filterManagerApplications(state.applications, state.properties.map((property) => property.id), applicationFilter), [applicationFilter, state.applications, state.properties]);
+  const filteredTenants = useMemo(() => filterManagerTenants(state.tenants, state.properties.map((property) => property.id), tenantQuery, tenantPropertyId || undefined), [state.properties, state.tenants, tenantPropertyId, tenantQuery]);
+  const analytics = useMemo(() => getPropertyAnalytics(state), [state]);
+  const selectedProperty = state.properties.find((property) => property.id === selectedPropertyId);
+  const selectedApplication = state.applications.find((application) => application.id === selectedApplicationId);
 
-      {/* Page content */}
-      <ScrollView style={styles.content} contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 100 }} showsVerticalScrollIndicator={false}>
+  const goTo = (next: ManagerPage) => { setPage(next); setSelectedPropertyId(undefined); setSelectedApplicationId(undefined); setEditorMode(null); };
+  const openAddProperty = () => { setForm(emptyPropertyForm()); setFormErrors({}); setEditorMode('add'); setSelectedPropertyId(undefined); };
+  const openEditProperty = (property: Property) => { setForm(propertyToForm(property)); setFormErrors({}); setSelectedPropertyId(property.id); setEditorMode('edit'); };
+  const closeEditor = () => {
+    const original = selectedProperty ? propertyToForm(selectedProperty) : emptyPropertyForm();
+    const dirty = JSON.stringify(form) !== JSON.stringify(original);
+    const close = () => { setEditorMode(null); setFormErrors({}); };
+    if (dirty) Alert.alert('Discard unsaved changes?', 'Your local edits have not been saved.', [{ text: 'Keep editing', style: 'cancel' }, { text: 'Discard', style: 'destructive', onPress: close }]);
+    else close();
+  };
+  const updateForm = (key: keyof PropertyFormFields, value: string) => { setForm((current) => ({ ...current, [key]: value })); setFormErrors((current) => ({ ...current, [key]: undefined })); };
+  const saveProperty = () => {
+    const errors = validatePropertyForm(form); setFormErrors(errors); if (Object.keys(errors).length) return;
+    if (editorMode === 'add') { const property = createManagerProperty(form, state.nextPropertySequence); dispatch({ type: 'add-property', property }); setSelectedPropertyId(property.id); }
+    else if (selectedProperty) dispatch({ type: 'update-property', property: updateManagerProperty(selectedProperty, form) });
+    setEditorMode(null);
+    Alert.alert('Changes saved', 'Property changes are available on this device for the current session. Nothing was published externally.');
+  };
+  const openApplication = (application: ManagerApplication) => { setSelectedApplicationId(application.id); setReviewNote(state.reviewNotes[application.id] ?? ''); };
+  const columns = fontScale >= 1.5 || width < 360 ? 1 : width >= 700 ? 3 : 2;
+  const cardWidth = Math.max(140, (width - Spacing.lg * 2 - Spacing.sm * (columns - 1)) / columns);
+  const navigationHeight = 58 + Math.max(0, Math.min(fontScale, 2) - 1) * 18;
 
-        {page === 'dashboard' && (
-          <>
-            <Text style={styles.pageTitle}>Dashboard</Text>
-            <View style={styles.statsGrid}>
-              {stats.map((s) => (
-                <View key={s.label} style={styles.statCard}>
-                  <View style={[styles.statIcon, { backgroundColor: s.bg }]}>
-                    <Text style={styles.statIconText}>{s.icon}</Text>
-                  </View>
-                  <Text style={styles.statVal}>{s.value}</Text>
-                  <Text style={styles.statLabel}>{s.label}</Text>
-                </View>
-              ))}
-            </View>
-
-            {/* Occupancy chart */}
-            <View style={styles.chartCard}>
-              <Text style={styles.chartTitle}>Occupancy Rate</Text>
-              <View style={styles.chartBars}>
-                {occupancy.map((pct, i) => (
-                  <View key={i} style={styles.chartBarCol}>
-                    <Text style={styles.chartPct}>{pct}%</Text>
-                    <View style={styles.chartBarTrack}>
-                      <View style={[styles.chartBarFill, { height: `${pct}%` }]} />
-                    </View>
-                    <Text style={styles.chartMonth}>{months[i]}</Text>
-                  </View>
-                ))}
-              </View>
-            </View>
-
-            {/* Recent applications */}
-            <View style={styles.sectionCard}>
-              <View style={styles.sectionCardHeader}>
-                <Text style={styles.sectionCardTitle}>Recent Applications</Text>
-                <TouchableOpacity onPress={() => setPage('applications')}>
-                  <Text style={styles.sectionCardLink}>View all</Text>
-                </TouchableOpacity>
-              </View>
-              {apps.slice(0, 3).map((a) => (
-                <View key={a.id} style={styles.appRow}>
-                  <View style={styles.appAvatar}>
-                    <Text style={styles.appAvatarText}>{a.student.split(' ').map(n => n[0]).join('')}</Text>
-                  </View>
-                  <View style={styles.appInfo}>
-                    <Text style={styles.appStudent}>{a.student}</Text>
-                    <Text style={styles.appProp}>{a.property}</Text>
-                  </View>
-                  <Badge label={a.status} variant={statusVariant[a.status] ?? 'gray'} />
-                </View>
-              ))}
-            </View>
-          </>
-        )}
-
-        {page === 'properties' && (
-          <>
-            <View style={styles.pageHeader}>
-              <Text style={styles.pageTitle}>Properties</Text>
-              <Btn style={styles.addBtn}>+ Add Property</Btn>
-            </View>
-            {properties.slice(0, 3).map((p) => (
-              <View key={p.id} style={styles.propCard}>
-                <Image source={{ uri: p.images[0] }} style={styles.propCardImage} contentFit="cover" />
-                <View style={styles.propCardInfo}>
-                  <Text style={styles.propCardName} numberOfLines={1}>{p.name}</Text>
-                  <Text style={styles.propCardCity}>{p.city} · {p.rooms.length} room types</Text>
-                  <View style={styles.propCardBadges}>
-                    <Badge label={`${p.available} available`} variant="green" />
-                    <Badge label={p.type} variant="gray" />
-                  </View>
-                  <Text style={styles.propCardPrice}>From R{p.price.toLocaleString()}/mo</Text>
-                </View>
-              </View>
-            ))}
-          </>
-        )}
-
-        {page === 'applications' && (
-          <>
-            <Text style={styles.pageTitle}>Applications</Text>
-            {selectedApp !== null ? (
-              <View style={styles.appDetail}>
-                <TouchableOpacity onPress={() => setSelectedApp(null)} style={styles.backToList}>
-                  <Text style={styles.backToListText}>← Back to applications</Text>
-                </TouchableOpacity>
-                {(() => {
-                  const a = apps.find((x) => x.id === selectedApp)!;
-                  return (
-                    <View style={styles.appDetailCard}>
-                      <View style={styles.appDetailHeader}>
-                        <Text style={styles.appDetailName}>{a.student}</Text>
-                        <Badge label={a.status} variant={statusVariant[a.status] ?? 'gray'} />
-                      </View>
-                      {[['Property', a.property], ['Room', a.room], ['Submitted', a.submitted], ['Documents', a.docs]].map(([k, v]) => (
-                        <View key={k} style={styles.appDetailRow}>
-                          <Text style={styles.appDetailLabel}>{k}</Text>
-                          <Text style={styles.appDetailVal}>{v}</Text>
-                        </View>
-                      ))}
-                      {(a.status === 'Pending' || a.status === 'Under Review') && (
-                        <View style={styles.appDetailActions}>
-                          <Btn variant="danger" style={{ flex: 1 }}>Reject</Btn>
-                          <Btn style={{ flex: 1 }}>Approve</Btn>
-                        </View>
-                      )}
-                    </View>
-                  );
-                })()}
-              </View>
-            ) : (
-              apps.map((a) => (
-                <View key={a.id} style={styles.appCard}>
-                  <View style={styles.appCardTop}>
-                    <View style={styles.appCardInfo}>
-                      <Text style={styles.appCardStudent}>{a.student}</Text>
-                      <Text style={styles.appCardProp}>{a.property} · {a.room}</Text>
-                      <Text style={styles.appCardMeta}>Docs: {a.docs} · {a.submitted}</Text>
-                    </View>
-                    <Badge label={a.status} variant={statusVariant[a.status] ?? 'gray'} />
-                  </View>
-                  <View style={styles.appCardActions}>
-                    <Btn variant="secondary" onPress={() => setSelectedApp(a.id)} style={styles.appCardBtn}>View</Btn>
-                    {(a.status === 'Pending' || a.status === 'Under Review') && (
-                      <Btn style={styles.appCardBtn}>Approve</Btn>
-                    )}
-                  </View>
-                </View>
-              ))
-            )}
-          </>
-        )}
-
-        {page === 'tenants' && (
-          <>
-            <Text style={styles.pageTitle}>Tenants</Text>
-            {[
-              { name: 'Luvuyo Mthembu', property: 'Campus View Residence', room: 'Private', rent: 3500, since: 'Feb 2024' },
-              { name: 'Farai Ncube', property: 'Campus View Residence', room: 'Shared', rent: 2200, since: 'Jan 2024' },
-              { name: 'Keanu Williams', property: 'Varsity Heights', room: 'Studio', rent: 5200, since: 'Mar 2024' },
-            ].map((t) => (
-              <View key={t.name} style={styles.tenantCard}>
-                <View style={styles.tenantAvatar}>
-                  <Text style={styles.tenantAvatarText}>{t.name.split(' ').map(n => n[0]).join('')}</Text>
-                </View>
-                <View style={styles.tenantInfo}>
-                  <Text style={styles.tenantName}>{t.name}</Text>
-                  <Text style={styles.tenantMeta}>{t.property} · {t.room} · since {t.since}</Text>
-                </View>
-                <View style={styles.tenantRent}>
-                  <Text style={styles.tenantRentVal}>R{t.rent.toLocaleString()}</Text>
-                  <Text style={styles.tenantRentSub}>/mo</Text>
-                </View>
-              </View>
-            ))}
-          </>
-        )}
-
-        {page === 'analytics' && (
-          <>
-            <Text style={styles.pageTitle}>Analytics</Text>
-            <View style={styles.revenueCard}>
-              <Text style={styles.revenueLabel}>Monthly Revenue</Text>
-              <Text style={styles.revenueVal}>R142,500</Text>
-              <View style={styles.revenueBars}>
-                {[85000, 92000, 105000, 120000, 132000, 142500].map((v, i) => (
-                  <View key={i} style={[styles.revenueBar, { height: `${(v / 142500) * 100}%` }]} />
-                ))}
-              </View>
-              <View style={styles.revenueMonths}>
-                {['Aug', 'Sep', 'Oct', 'Nov', 'Dec', 'Jan'].map((m) => (
-                  <Text key={m} style={styles.revenueMonth}>{m}</Text>
-                ))}
-              </View>
-            </View>
-            <View style={styles.metricsGrid}>
-              {[
-                { label: 'Avg. Occupancy', value: '83%', delta: '+5%' },
-                { label: 'New Applications', value: '24', delta: '+8' },
-                { label: 'Avg. Response', value: '1.2h', delta: '-0.3h' },
-                { label: 'Satisfaction', value: '4.7★', delta: '+0.2' },
-              ].map((m) => (
-                <View key={m.label} style={styles.metricCard}>
-                  <Text style={styles.metricLabel}>{m.label}</Text>
-                  <Text style={styles.metricVal}>{m.value}</Text>
-                  <Text style={styles.metricDelta}>{m.delta} this month</Text>
-                </View>
-              ))}
-            </View>
-          </>
-        )}
-      </ScrollView>
-
-      {/* Bottom nav */}
-      <View style={[styles.bottomNav, { paddingBottom: insets.bottom + 4 }]}>
-        {navItems.map(({ key, label, icon }) => (
-          <TouchableOpacity key={key} style={styles.navItem} onPress={() => setPage(key)} activeOpacity={0.7}>
-            <Text style={styles.navIcon}>{icon}</Text>
-            <Text style={[styles.navLabel, page === key && styles.navLabelActive]}>{label}</Text>
-            {page === key && <View style={styles.navDot} />}
-          </TouchableOpacity>
-        ))}
-        <TouchableOpacity style={styles.navItem} onPress={() => (navigation as any).replace('Login')} activeOpacity={0.7}>
-          <Text style={styles.navIcon}>🔒</Text>
-          <Text style={styles.navLabel}>Exit</Text>
-        </TouchableOpacity>
-      </View>
-    </View>
-  );
+  return <View style={[styles.container, { paddingTop: insets.top }]}>
+    <View style={styles.topBar}><View style={styles.brand}><View style={styles.brandIcon}><Ionicons name="business" size={18} color={Colors.white} /></View><View><Text style={styles.brandName}>Manager Workspace</Text><Text style={styles.brandSub}>Local portfolio</Text></View></View><IconButton icon="exit-outline" label="Return to student Home" hint="Leaves manager tools and opens the student Home screen" onPress={() => navigation.replace('Main')} color={Colors.white} backgroundColor="rgba(255,255,255,0.12)" /></View>
+    <ScrollView style={styles.content} contentContainerStyle={[styles.scroll, { paddingBottom: 96 + insets.bottom }]} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets showsVerticalScrollIndicator={false}>
+      {page === 'dashboard' ? <Dashboard metrics={metrics} applications={state.applications} cardWidth={cardWidth} onNavigate={goTo} /> : null}
+      {page === 'properties' ? editorMode ? <PropertyForm mode={editorMode} fields={form} errors={formErrors} onChange={updateForm} onSave={saveProperty} onCancel={closeEditor} /> : selectedProperty ? <PropertyDetail property={selectedProperty} onBack={() => setSelectedPropertyId(undefined)} onEdit={() => openEditProperty(selectedProperty)} onSaveRoom={(room) => dispatch({ type: 'update-room', propertyId: selectedProperty.id, room })} /> : <PropertiesPage properties={filteredProperties} query={propertyQuery} filter={propertyFilter} onQuery={setPropertyQuery} onFilter={setPropertyFilter} onAdd={openAddProperty} onOpen={setSelectedPropertyId} /> : null}
+      {page === 'applications' ? selectedApplication ? <ApplicationDetail application={selectedApplication} property={state.properties.find((property) => property.id === selectedApplication.propertyId)} note={reviewNote} savedNote={state.reviewNotes[selectedApplication.id]} onNote={setReviewNote} onBack={() => setSelectedApplicationId(undefined)} onSave={() => { dispatch({ type: 'save-review-note', applicationId: selectedApplication.id, note: reviewNote }); Alert.alert('Review note saved', 'This note stays on this device for the current session. It is not an approval, rejection, booking, or student notification.'); }} /> : <ApplicationsPage applications={scopedApplications} properties={state.properties} filter={applicationFilter} onFilter={setApplicationFilter} onOpen={openApplication} /> : null}
+      {page === 'more' ? <MorePage onNavigate={goTo} /> : null}
+      {page === 'tenants' ? <TenantsPage tenants={filteredTenants} properties={state.properties} query={tenantQuery} propertyId={tenantPropertyId} onQuery={setTenantQuery} onProperty={setTenantPropertyId} onBack={() => goTo('more')} /> : null}
+      {page === 'analytics' ? <AnalyticsPage metrics={metrics} analytics={analytics} onBack={() => goTo('more')} /> : null}
+      {page === 'settings' ? <SettingsPage onBack={() => goTo('more')} onStudentHome={() => navigation.replace('Main')} /> : null}
+    </ScrollView>
+    <View style={[styles.bottomNav, { paddingBottom: Math.max(insets.bottom, Spacing.xs) }]}>{primaryNavigation.map((item) => { const selected = page === item.key || (item.key === 'more' && ['tenants', 'analytics', 'settings'].includes(page)); return <TouchableOpacity key={item.key} accessibilityRole="tab" accessibilityLabel={item.label} accessibilityState={{ selected }} onPress={() => goTo(item.key)} style={[styles.navItem, { minHeight: navigationHeight }]} activeOpacity={0.7}><Ionicons importantForAccessibility="no-hide-descendants" name={item.icon} size={22} color={selected ? Colors.blue : Colors.slate500} /><Text style={[styles.navLabel, selected && styles.navLabelActive]}>{item.label}</Text>{selected ? <View importantForAccessibility="no-hide-descendants" style={styles.navIndicator} /> : null}</TouchableOpacity>; })}</View>
+  </View>;
 }
 
-const { width } = Dimensions.get('window');
+function PageHeading({ title, subtitle }: { title: string; subtitle?: string }) { return <View style={styles.heading}><Text accessibilityRole="header" style={styles.pageTitle}>{title}</Text>{subtitle ? <Text style={styles.pageSubtitle}>{subtitle}</Text> : null}</View>; }
+
+function Dashboard({ metrics, applications, cardWidth, onNavigate }: { metrics: ReturnType<typeof getManagerMetrics>; applications: ManagerApplication[]; cardWidth: number; onNavigate: (page: ManagerPage) => void }) {
+  const cards = [{ label: 'Properties', value: metrics.totalProperties, icon: 'business-outline' as const, page: 'properties' as const }, { label: 'Available rooms', value: metrics.availableRooms, icon: 'bed-outline' as const, page: 'properties' as const }, { label: 'Occupied rooms', value: metrics.occupiedRooms, icon: 'key-outline' as const, page: 'tenants' as const }, { label: 'Awaiting review', value: metrics.awaitingReview, icon: 'document-text-outline' as const, page: 'applications' as const }, { label: 'Active tenants', value: metrics.activeTenants, icon: 'people-outline' as const, page: 'tenants' as const }, { label: 'Current occupancy', value: `${metrics.occupancyRate}%`, icon: 'pie-chart-outline' as const, page: 'analytics' as const }];
+  return <><PageHeading title="Dashboard" subtitle="Current on-device portfolio summary" /><View style={styles.statsGrid}>{cards.map((card) => <TouchableOpacity key={card.label} accessibilityRole="button" accessibilityLabel={`${card.label}: ${card.value}`} accessibilityHint={`Opens ${card.label}`} onPress={() => onNavigate(card.page)} style={[styles.statCard, { width: cardWidth }]}><View style={styles.statIcon}><Ionicons name={card.icon} size={21} color={Colors.blue} /></View><Text style={styles.statValue}>{card.value}</Text><Text style={styles.statLabel}>{card.label}</Text></TouchableOpacity>)}</View><View style={styles.sectionCard}><View style={styles.sectionHeader}><Text style={styles.sectionTitle}>Recent applications</Text><TouchableOpacity accessibilityRole="button" onPress={() => onNavigate('applications')} style={styles.textAction}><Text style={styles.textActionLabel}>View all</Text></TouchableOpacity></View>{applications.slice(0, 3).map((application) => <View key={application.id} style={styles.compactRow}><View style={styles.avatar}><Text style={styles.avatarText}>{initials(application.applicantName)}</Text></View><View style={styles.flexCopy}><Text style={styles.rowTitle}>{application.applicantName}</Text><Text style={styles.rowMeta}>{application.roomType}</Text></View><StatusBadge label={application.status} variant={applicationVariants[application.status]} /></View>)}</View></>;
+}
+
+function PropertiesPage({ properties, query, filter, onQuery, onFilter, onAdd, onOpen }: { properties: Property[]; query: string; filter: ManagerPropertyFilter; onQuery: (value: string) => void; onFilter: (value: ManagerPropertyFilter) => void; onAdd: () => void; onOpen: (id: string) => void }) {
+  return <><View style={styles.headingRow}><PageHeading title="Properties" subtitle="Manage your local portfolio" /><Btn onPress={onAdd} style={styles.compactButton}>Add Property</Btn></View><Input label="Search properties" value={query} onChangeText={onQuery} placeholder="Name, city, university or amenity" returnKeyType="search" /><ChipRow values={['all', 'available', 'full']} selected={filter} onSelect={(value) => onFilter(value as ManagerPropertyFilter)} labels={{ all: 'All', available: 'Available', full: 'Full' }} />{properties.length ? properties.map((property) => <PropertyCard key={property.id} property={property} onPress={() => onOpen(property.id)} />) : <EmptyState icon={<Ionicons name="business-outline" size={48} color={Colors.slate500} />} title="No matching properties" description="Adjust your search or availability filter." actionLabel="Clear filters" onAction={() => { onQuery(''); onFilter('all'); }} />}</>;
+}
+
+function PropertyCard({ property, onPress }: { property: Property; onPress: () => void }) { const available = getPropertyAvailableRooms(property); return <TouchableOpacity accessibilityRole="button" accessibilityLabel={`${property.name}, ${property.city}, ${available} rooms available`} accessibilityHint="Opens property management details" onPress={onPress} style={styles.propertyCard}><RemoteImage source={property.images[0] ? { uri: property.images[0] } : null} style={styles.propertyImage} accessibilityLabel={`${property.name} accommodation`} fallbackLabel="Property image unavailable" /><View style={styles.propertyCopy}><Text numberOfLines={2} style={styles.propertyName}>{property.name}</Text><Text style={styles.rowMeta}>{property.city} · {property.rooms.length} room types</Text><View style={styles.badgeRow}><StatusBadge label={available ? `${available} available` : 'Full'} variant={available ? 'green' : 'red'} /><StatusBadge label={property.type} variant="gray" /></View><Text style={styles.propertyPrice}>From R{property.price.toLocaleString()}/month</Text></View><Ionicons name="chevron-forward" size={22} color={Colors.slate400} /></TouchableOpacity>; }
+
+function PropertyDetail({ property, onBack, onEdit, onSaveRoom }: { property: Property; onBack: () => void; onEdit: () => void; onSaveRoom: (room: Room) => void }) { return <><BackAction label="Back to properties" onPress={onBack} /><View style={styles.headingRow}><PageHeading title={property.name} subtitle={`${property.address}, ${property.city}`} /><Btn variant="secondary" onPress={onEdit} style={styles.compactButton}>Edit</Btn></View><View style={styles.sectionCard}><Text style={styles.sectionTitle}>Property overview</Text><Text style={styles.bodyText}>{property.description}</Text><View style={styles.badgeRow}><StatusBadge label={`${getPropertyAvailableRooms(property)} available`} variant={getPropertyAvailableRooms(property) ? 'green' : 'red'} /><StatusBadge label={`${property.rooms.length} room types`} variant="blue" /></View>{property.amenities.length ? <Text style={styles.rowMeta}>{property.amenities.join(' · ')}</Text> : <Text style={styles.rowMeta}>No amenities listed</Text>}</View><Text accessibilityRole="header" style={styles.sectionHeading}>Room management</Text>{property.rooms.length ? property.rooms.map((room) => <RoomEditor key={room.id} room={room} onSave={(fields) => onSaveRoom({ ...room, price: Number(fields.price), available: Number(fields.available) })} />) : <EmptyState title="No rooms" description="No room types are associated with this property." />}</>; }
+
+function RoomEditor({ room, onSave }: { room: Room; onSave: (fields: RoomEditFields) => void }) {
+  const [fields, setFields] = useState<RoomEditFields>({ price: String(room.price), available: String(room.available) }); const [errors, setErrors] = useState<ReturnType<typeof validateRoomEdit>>({});
+  const save = () => { const next = validateRoomEdit(fields); setErrors(next); if (Object.keys(next).length) return; onSave(fields); Alert.alert('Room updated', 'Price and availability are updated on this device for the current session. No inventory was reserved.'); };
+  return <View style={styles.sectionCard}><View style={styles.sectionHeader}><View><Text style={styles.rowTitle}>{room.type}</Text><Text style={styles.rowMeta}>Capacity {room.capacity} · {room.bathroom}</Text></View><StatusBadge label={room.available ? `${room.available} available` : 'Full'} variant={room.available ? 'green' : 'red'} /></View><View style={styles.formRow}><Input label="Monthly price" value={fields.price} onChangeText={(value) => { setFields((current) => ({ ...current, price: value })); setErrors((current) => ({ ...current, price: undefined })); }} keyboardType="numeric" error={errors.price} style={styles.flexInput} /><Input label="Available rooms" value={fields.available} onChangeText={(value) => { setFields((current) => ({ ...current, available: value })); setErrors((current) => ({ ...current, available: undefined })); }} keyboardType="number-pad" error={errors.available} style={styles.flexInput} /></View><Btn variant="secondary" onPress={save}>Save Room Changes</Btn></View>;
+}
+
+function PropertyForm({ mode, fields, errors, onChange, onSave, onCancel }: { mode: Exclude<EditorMode, null>; fields: PropertyFormFields; errors: ReturnType<typeof validatePropertyForm>; onChange: (key: keyof PropertyFormFields, value: string) => void; onSave: () => void; onCancel: () => void }) {
+  return <><BackAction label="Cancel property changes" onPress={onCancel} /><PageHeading title={mode === 'add' ? 'Add Property' : 'Edit Property'} subtitle="Changes stay on this device and are not published externally" /><View style={styles.formCard}><Input label="Property name" value={fields.name} onChangeText={(value) => onChange('name', value)} error={errors.name} required /><Input label="City" value={fields.city} onChangeText={(value) => onChange('city', value)} error={errors.city} required /><Input label="Address" value={fields.address} onChangeText={(value) => onChange('address', value)} error={errors.address} required /><View><Text style={styles.fieldLabel}>University <Text style={styles.required}>*</Text></Text><View style={[styles.pickerWrap, errors.university && styles.pickerError]}><Picker accessibilityLabel="University, required" selectedValue={fields.university} onValueChange={(value: string) => onChange('university', value)}><Picker.Item label="Select a university" value="" />{universities.map((university) => <Picker.Item key={university.id} label={university.name} value={university.id} />)}</Picker></View>{errors.university ? <Text accessibilityRole="alert" style={styles.errorText}>{errors.university}</Text> : null}</View><Input label="Property type" value={fields.type} onChangeText={(value) => onChange('type', value)} error={errors.type} required /><Input label="Description" value={fields.description} onChangeText={(value) => onChange('description', value)} error={errors.description} required multiline /><Input label="Amenities" helperText="Separate amenities with commas" value={fields.amenities} onChangeText={(value) => onChange('amenities', value)} />{mode === 'add' ? <><Text accessibilityRole="header" style={styles.formSectionTitle}>First room type</Text><Input label="Room type" value={fields.roomType} onChangeText={(value) => onChange('roomType', value)} error={errors.roomType} required /><Input label="Monthly price" value={fields.roomPrice} onChangeText={(value) => onChange('roomPrice', value)} error={errors.roomPrice} keyboardType="numeric" required /><Input label="Available rooms" value={fields.roomAvailable} onChangeText={(value) => onChange('roomAvailable', value)} error={errors.roomAvailable} keyboardType="number-pad" required /></> : null}<Btn onPress={onSave}>{mode === 'add' ? 'Add to Portfolio' : 'Save Property Changes'}</Btn></View></>;
+}
+
+function ApplicationsPage({ applications, properties, filter, onFilter, onOpen }: { applications: ManagerApplication[]; properties: Property[]; filter: ManagerApplicationFilter; onFilter: (value: ManagerApplicationFilter) => void; onOpen: (application: ManagerApplication) => void }) { return <><PageHeading title="Applications" subtitle="Only records explicitly linked to this local portfolio are shown" /><ChipRow values={['All', 'New', 'In review', 'Review complete']} selected={filter} onSelect={(value) => onFilter(value as ManagerApplicationFilter)} />{applications.length ? applications.map((application) => { const property = properties.find((item) => item.id === application.propertyId); return <TouchableOpacity key={application.id} accessibilityRole="button" accessibilityLabel={`${application.applicantName}, ${application.status}, ${property?.name ?? 'property unavailable'}`} onPress={() => onOpen(application)} style={styles.applicationCard}><View style={styles.sectionHeader}><View style={styles.flexCopy}><Text style={styles.rowTitle}>{application.applicantName}</Text><Text style={styles.rowMeta}>{property?.name ?? 'Property unavailable'} · {application.roomType}</Text></View><StatusBadge label={application.status} variant={applicationVariants[application.status]} /></View><Text style={styles.rowMeta}>{application.documentSummary} · {application.submittedLabel}</Text></TouchableOpacity>; }) : <EmptyState icon={<Ionicons name="document-text-outline" size={48} color={Colors.slate500} />} title="No applications" description="No portfolio applications match this status filter." actionLabel="Show all" onAction={() => onFilter('All')} />}</>; }
+
+function ApplicationDetail({ application, property, note, savedNote, onNote, onBack, onSave }: { application: ManagerApplication; property?: Property; note: string; savedNote?: string; onNote: (value: string) => void; onBack: () => void; onSave: () => void }) {
+  const unavailable = () => Alert.alert('Decision unavailable', 'Final approval and rejection require authenticated server access. No application status, booking, or student notification was changed.');
+  return <><BackAction label="Back to applications" onPress={onBack} /><PageHeading title={application.applicantName} subtitle={property ? `${property.name} · ${application.roomType}` : 'Property unavailable'} /><View style={styles.sectionCard}><View style={styles.sectionHeader}><Text style={styles.sectionTitle}>Application details</Text><StatusBadge label={application.status} variant={applicationVariants[application.status]} /></View><DetailRow label="Reference" value={application.id} /><DetailRow label="Submitted" value={application.submittedLabel} /><DetailRow label="Documents" value={application.documentSummary} /><DetailRow label="Scope" value={property ? 'Linked to this portfolio' : 'Unavailable'} /></View><View style={styles.sectionCard}><Text style={styles.sectionTitle}>Internal review note</Text><Text style={styles.rowMeta}>This session-only note is not shared with the student and does not change application status.</Text><Input label="Review note" value={note} onChangeText={onNote} placeholder="Add an internal note" multiline /><Btn variant="secondary" onPress={onSave}>{savedNote ? 'Update Review Note' : 'Save Review Note'}</Btn></View><View style={styles.actionRow}><Btn variant="danger" onPress={unavailable} style={styles.actionButton}>Reject Unavailable</Btn><Btn onPress={unavailable} style={styles.actionButton}>Approve Unavailable</Btn></View></>;
+}
+
+function MorePage({ onNavigate }: { onNavigate: (page: ManagerPage) => void }) { const rows = [{ page: 'tenants' as const, title: 'Tenants', subtitle: 'View active local tenant records', icon: 'people-outline' as const }, { page: 'analytics' as const, title: 'Analytics', subtitle: 'Review current portfolio summaries', icon: 'analytics-outline' as const }, { page: 'settings' as const, title: 'Settings', subtitle: 'Workspace information and navigation', icon: 'settings-outline' as const }]; return <><PageHeading title="More" subtitle="Portfolio tools and workspace settings" />{rows.map((row) => <TouchableOpacity key={row.page} accessibilityRole="button" accessibilityLabel={row.title} accessibilityHint={row.subtitle} onPress={() => onNavigate(row.page)} style={styles.moreRow}><View style={styles.moreIcon}><Ionicons name={row.icon} size={22} color={Colors.blue} /></View><View style={styles.flexCopy}><Text style={styles.rowTitle}>{row.title}</Text><Text style={styles.rowMeta}>{row.subtitle}</Text></View><Ionicons name="chevron-forward" size={22} color={Colors.slate400} /></TouchableOpacity>)}</>; }
+
+function TenantsPage({ tenants, properties, query, propertyId, onQuery, onProperty, onBack }: { tenants: ReturnType<typeof filterManagerTenants>; properties: Property[]; query: string; propertyId: string; onQuery: (value: string) => void; onProperty: (value: string) => void; onBack: () => void }) { return <><BackAction label="Back to More" onPress={onBack} /><PageHeading title="Tenants" subtitle="Read-only active tenant records explicitly linked to this portfolio" /><Input label="Search tenants" value={query} onChangeText={onQuery} placeholder="Tenant name" returnKeyType="search" /><View style={styles.pickerWrap}><Picker accessibilityLabel="Filter tenants by property" selectedValue={propertyId} onValueChange={(value: string) => onProperty(value)}><Picker.Item label="All properties" value="" />{properties.map((property) => <Picker.Item key={property.id} label={property.name} value={property.id} />)}</Picker></View>{tenants.length ? tenants.map((tenant) => { const property = properties.find((item) => item.id === tenant.propertyId); const room = property?.rooms.find((item) => item.id === tenant.roomId); return <View key={tenant.id} accessible accessibilityLabel={`${tenant.name}, active tenant at ${property?.name ?? 'unknown property'}`} style={styles.tenantCard}><View style={styles.avatar}><Text style={styles.avatarText}>{initials(tenant.name)}</Text></View><View style={styles.flexCopy}><Text style={styles.rowTitle}>{tenant.name}</Text><Text style={styles.rowMeta}>{property?.name ?? 'Property unavailable'} · {room?.type ?? 'Room unavailable'}</Text><Text style={styles.rowMeta}>Since {tenant.moveInLabel}</Text></View><StatusBadge label={tenant.status} variant="green" /></View>; }) : <EmptyState icon={<Ionicons name="people-outline" size={48} color={Colors.slate500} />} title="No tenants" description="No active tenant records match these filters." actionLabel="Clear filters" onAction={() => { onQuery(''); onProperty(''); }} />}</>; }
+
+function AnalyticsPage({ metrics, analytics, onBack }: { metrics: ReturnType<typeof getManagerMetrics>; analytics: ReturnType<typeof getPropertyAnalytics>; onBack: () => void }) { return <><BackAction label="Back to More" onPress={onBack} /><PageHeading title="Analytics" subtitle="Current-state summaries calculated from this local portfolio" /><View accessible accessibilityLabel={`Portfolio occupancy is ${metrics.occupancyRate} percent, with ${metrics.occupiedRooms} occupied and ${metrics.availableRooms} available rooms`} style={styles.analyticsSummary}><Text style={styles.analyticsValue}>{metrics.occupancyRate}%</Text><Text style={styles.analyticsTitle}>Current occupancy</Text><Text style={styles.analyticsText}>{metrics.occupiedRooms} occupied · {metrics.availableRooms} available</Text></View>{analytics.length ? analytics.map((item) => <View key={item.propertyId} accessible accessibilityLabel={`${item.propertyName}: ${item.occupancyRate} percent occupied, ${item.occupied} occupied, ${item.available} available`} style={styles.sectionCard}><View style={styles.sectionHeader}><Text style={styles.rowTitle}>{item.propertyName}</Text><Text style={styles.analyticsRate}>{item.occupancyRate}%</Text></View><View style={styles.progressTrack}><View style={[styles.progressFill, { width: `${item.occupancyRate}%` }]} /></View><Text style={styles.rowMeta}>{item.occupied} occupied · {item.available} available</Text></View>) : <EmptyState title="No analytics available" description="Add a property to calculate current portfolio summaries." />}</>; }
+
+function SettingsPage({ onBack, onStudentHome }: { onBack: () => void; onStudentHome: () => void }) { const unavailable = (title: string) => Alert.alert(title, 'This setting is not connected yet. No account or organization information was changed.'); return <><BackAction label="Back to More" onPress={onBack} /><PageHeading title="Settings" subtitle="Manager workspace" />{['Manager profile', 'Workspace notifications', 'Security and access'].map((title) => <TouchableOpacity key={title} accessibilityRole="button" accessibilityLabel={title} accessibilityHint="Shows availability information" onPress={() => unavailable(title)} style={styles.moreRow}><View style={styles.flexCopy}><Text style={styles.rowTitle}>{title}</Text><Text style={styles.rowMeta}>Not connected</Text></View><Ionicons importantForAccessibility="no-hide-descendants" name="chevron-forward" size={22} color={Colors.slate400} /></TouchableOpacity>)}<View style={styles.sectionCard}><Text style={styles.sectionTitle}>Student experience</Text><Text style={styles.bodyText}>Manager tools are separate from student navigation.</Text><Btn variant="secondary" onPress={onStudentHome}>Return to Student Home</Btn></View></>; }
+
+function ChipRow({ values, selected, onSelect, labels }: { values: readonly string[]; selected: string; onSelect: (value: string) => void; labels?: Record<string, string> }) { return <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>{values.map((value) => { const active = selected === value; return <TouchableOpacity key={value} accessibilityRole="button" accessibilityState={{ selected: active }} onPress={() => onSelect(value)} style={[styles.chip, active && styles.chipActive]}><Text style={[styles.chipText, active && styles.chipTextActive]}>{labels?.[value] ?? value}</Text></TouchableOpacity>; })}</ScrollView>; }
+function BackAction({ label, onPress }: { label: string; onPress: () => void }) { return <TouchableOpacity accessibilityRole="button" accessibilityLabel={label} onPress={onPress} style={styles.backAction}><Ionicons name="arrow-back" size={19} color={Colors.blue} /><Text style={styles.backActionText}>{label}</Text></TouchableOpacity>; }
+function DetailRow({ label, value }: { label: string; value: string }) { return <View style={styles.detailRow}><Text style={styles.detailLabel}>{label}</Text><Text style={styles.detailValue}>{value}</Text></View>; }
+function initials(name: string) { return name.split(' ').filter(Boolean).slice(0, 2).map((part) => part[0]).join('').toUpperCase(); }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.background },
-  topBar: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    backgroundColor: Colors.navy,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-  },
-  brand: { flexDirection: "row", alignItems: "center", gap: 8 },
-  brandIcon: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
-    backgroundColor: Colors.blue,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  brandIconText: { fontSize: 16 },
-  brandName: { color: Colors.white, fontSize: 16, fontFamily: Fonts.heading },
-  mgAvatar: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: Colors.blue,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  mgAvatarText: {
-    color: Colors.white,
-    fontSize: 12,
-    fontFamily: Fonts.bodySemi,
-  },
-  content: { flex: 1 },
-  pageTitle: {
-    fontSize: 22,
-    fontFamily: Fonts.heading,
-    color: Colors.slate900,
-  },
-  pageHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  addBtn: { paddingVertical: 8, paddingHorizontal: 14 },
-  statsGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
-  statCard: {
-    width: (width - 52) / 2,
-    backgroundColor: Colors.white,
-    borderRadius: Radius.xl,
-    padding: 16,
-    ...Shadow.sm,
-    gap: 6,
-  },
-  statIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: Radius.md,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  statIconText: { fontSize: 20 },
-  statVal: { fontSize: 22, fontFamily: Fonts.heading, color: Colors.slate900 },
-  statLabel: { fontSize: 12, fontFamily: Fonts.body, color: Colors.slate400 },
-  chartCard: {
-    backgroundColor: Colors.white,
-    borderRadius: Radius.xl,
-    padding: 16,
-    ...Shadow.sm,
-  },
-  chartTitle: {
-    fontSize: 16,
-    fontFamily: Fonts.heading,
-    color: Colors.slate900,
-    marginBottom: 14,
-  },
-  chartBars: {
-    flexDirection: "row",
-    alignItems: "flex-end",
-    height: 110,
-    gap: 6,
-  },
-  chartBarCol: {
-    flex: 1,
-    alignItems: "center",
-    gap: 4,
-    height: "100%",
-    justifyContent: "flex-end",
-  },
-  chartPct: { fontSize: 9, fontFamily: Fonts.bodySemi, color: Colors.blue },
-  chartBarTrack: {
-    width: "100%",
-    flex: 1,
-    backgroundColor: Colors.blue100,
-    borderRadius: 4,
-    overflow: "hidden",
-    justifyContent: "flex-end",
-  },
-  chartBarFill: {
-    width: "100%",
-    backgroundColor: Colors.blue,
-    borderRadius: 4,
-  },
-  chartMonth: { fontSize: 9, fontFamily: Fonts.body, color: Colors.slate400 },
-  sectionCard: {
-    backgroundColor: Colors.white,
-    borderRadius: Radius.xl,
-    padding: 16,
-    ...Shadow.sm,
-    gap: 12,
-  },
-  sectionCardHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  sectionCardTitle: {
-    fontSize: 16,
-    fontFamily: Fonts.heading,
-    color: Colors.slate900,
-  },
-  sectionCardLink: {
-    fontSize: 13,
-    fontFamily: Fonts.bodyMed,
-    color: Colors.blue,
-  },
-  appRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    paddingVertical: 6,
-  },
-  appAvatar: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: Colors.slate200,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  appAvatarText: {
-    fontSize: 12,
-    fontFamily: Fonts.bodySemi,
-    color: Colors.slate600,
-  },
-  appInfo: { flex: 1 },
-  appStudent: {
-    fontSize: 13,
-    fontFamily: Fonts.heading,
-    color: Colors.slate900,
-  },
-  appProp: { fontSize: 11, fontFamily: Fonts.body, color: Colors.slate400 },
-  propCard: {
-    flexDirection: "row",
-    gap: 12,
-    backgroundColor: Colors.white,
-    borderRadius: Radius.xl,
-    overflow: "hidden",
-    ...Shadow.sm,
-  },
-  propCardImage: { width: 90, height: 90 },
-  propCardInfo: { flex: 1, padding: 12, gap: 4 },
-  propCardName: {
-    fontSize: 14,
-    fontFamily: Fonts.heading,
-    color: Colors.slate900,
-  },
-  propCardCity: {
-    fontSize: 12,
-    fontFamily: Fonts.body,
-    color: Colors.slate500,
-  },
-  propCardBadges: { flexDirection: "row", gap: 6 },
-  propCardPrice: {
-    fontSize: 13,
-    fontFamily: Fonts.bodySemi,
-    color: Colors.slate800,
-  },
-  appCard: {
-    backgroundColor: Colors.white,
-    borderRadius: Radius.xl,
-    padding: 14,
-    ...Shadow.sm,
-    gap: 10,
-  },
-  appCardTop: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-  },
-  appCardInfo: { flex: 1, gap: 2 },
-  appCardStudent: {
-    fontSize: 14,
-    fontFamily: Fonts.heading,
-    color: Colors.slate900,
-  },
-  appCardProp: { fontSize: 12, fontFamily: Fonts.body, color: Colors.slate500 },
-  appCardMeta: { fontSize: 11, fontFamily: Fonts.body, color: Colors.slate400 },
-  appCardActions: { flexDirection: "row", gap: 8 },
-  appCardBtn: { flex: 1, paddingVertical: 8 },
-  appDetail: { gap: 12 },
-  backToList: {},
-  backToListText: {
-    color: Colors.blue,
-    fontSize: 14,
-    fontFamily: Fonts.bodyMed,
-  },
-  appDetailCard: {
-    backgroundColor: Colors.white,
-    borderRadius: Radius.xl,
-    padding: 20,
-    ...Shadow.sm,
-    gap: 12,
-  },
-  appDetailHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  appDetailName: {
-    fontSize: 18,
-    fontFamily: Fonts.heading,
-    color: Colors.slate900,
-  },
-  appDetailRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.slate100,
-  },
-  appDetailLabel: {
-    fontSize: 13,
-    fontFamily: Fonts.body,
-    color: Colors.slate500,
-  },
-  appDetailVal: {
-    fontSize: 13,
-    fontFamily: Fonts.bodySemi,
-    color: Colors.slate900,
-  },
-  appDetailActions: { flexDirection: "row", gap: 12, marginTop: 4 },
-  tenantCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: Colors.white,
-    borderRadius: Radius.xl,
-    padding: 14,
-    ...Shadow.sm,
-    gap: 12,
-  },
-  tenantAvatar: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: Colors.blue100,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  tenantAvatarText: {
-    fontSize: 14,
-    fontFamily: Fonts.bodySemi,
-    color: Colors.blue,
-  },
-  tenantInfo: { flex: 1 },
-  tenantName: {
-    fontSize: 14,
-    fontFamily: Fonts.heading,
-    color: Colors.slate900,
-  },
-  tenantMeta: {
-    fontSize: 12,
-    fontFamily: Fonts.body,
-    color: Colors.slate400,
-    marginTop: 2,
-  },
-  tenantRent: { alignItems: "flex-end" },
-  tenantRentVal: {
-    fontSize: 15,
-    fontFamily: Fonts.heading,
-    color: Colors.slate900,
-  },
-  tenantRentSub: {
-    fontSize: 11,
-    fontFamily: Fonts.body,
-    color: Colors.slate400,
-  },
-  revenueCard: {
-    backgroundColor: Colors.white,
-    borderRadius: Radius.xl,
-    padding: 16,
-    ...Shadow.sm,
-    gap: 8,
-  },
-  revenueLabel: {
-    fontSize: 14,
-    fontFamily: Fonts.bodyMed,
-    color: Colors.slate500,
-  },
-  revenueVal: { fontSize: 28, fontFamily: Fonts.heading, color: Colors.blue },
-  revenueBars: {
-    flexDirection: "row",
-    alignItems: "flex-end",
-    height: 80,
-    gap: 6,
-  },
-  revenueBar: {
-    flex: 1,
-    backgroundColor: Colors.blue,
-    borderRadius: 4,
-    opacity: 0.7,
-  },
-  revenueMonths: { flexDirection: "row", gap: 6 },
-  revenueMonth: {
-    flex: 1,
-    textAlign: "center",
-    fontSize: 10,
-    fontFamily: Fonts.body,
-    color: Colors.slate400,
-  },
-  metricsGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
-  metricCard: {
-    width: (width - 52) / 2,
-    backgroundColor: Colors.white,
-    borderRadius: Radius.xl,
-    padding: 14,
-    ...Shadow.sm,
-    gap: 4,
-  },
-  metricLabel: { fontSize: 11, fontFamily: Fonts.body, color: Colors.slate400 },
-  metricVal: {
-    fontSize: 22,
-    fontFamily: Fonts.heading,
-    color: Colors.slate900,
-  },
-  metricDelta: {
-    fontSize: 11,
-    fontFamily: Fonts.bodySemi,
-    color: Colors.green600,
-  },
-  bottomNav: {
-    flexDirection: "row",
-    backgroundColor: Colors.white,
-    borderTopWidth: 1,
-    borderTopColor: Colors.slate100,
-    paddingTop: 8,
-  },
-  navItem: { flex: 1, alignItems: "center", gap: 2, paddingVertical: 4 },
-  navIcon: { fontSize: 20 },
-  navLabel: { fontSize: 9, fontFamily: Fonts.bodyMed, color: Colors.slate400 },
-  navLabelActive: { color: Colors.blue },
-  navDot: {
-    width: 4,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: Colors.blue,
-  },
+  container: { flex: 1, backgroundColor: Colors.background }, topBar: { minHeight: 64, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: Spacing.lg, paddingVertical: Spacing.sm, backgroundColor: Colors.navy }, brand: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: Spacing.sm }, brandIcon: { width: 38, height: 38, borderRadius: Radius.md, alignItems: 'center', justifyContent: 'center', backgroundColor: Colors.blue }, brandName: { fontSize: 16, fontFamily: Fonts.heading, color: Colors.white }, brandSub: { fontSize: 11, fontFamily: Fonts.body, color: Colors.slate300 }, content: { flex: 1 }, scroll: { padding: Spacing.lg, gap: Spacing.md },
+  heading: { flex: 1, minWidth: 0, gap: 3 }, headingRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: Spacing.md }, pageTitle: { fontSize: 24, lineHeight: 31, fontFamily: Fonts.heading, color: TextColors.primary }, pageSubtitle: { fontSize: 12, lineHeight: 18, fontFamily: Fonts.body, color: TextColors.muted }, sectionHeading: { marginTop: Spacing.xs, fontSize: 18, fontFamily: Fonts.heading, color: TextColors.primary },
+  statsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm }, statCard: { minHeight: 140, padding: Spacing.lg, borderRadius: Radius.xl, backgroundColor: Colors.white, ...Shadow.sm }, statIcon: { width: 40, height: 40, borderRadius: Radius.md, alignItems: 'center', justifyContent: 'center', backgroundColor: Colors.blue100 }, statValue: { marginTop: Spacing.md, fontSize: 24, fontFamily: Fonts.heading, color: TextColors.primary }, statLabel: { marginTop: 2, fontSize: 12, lineHeight: 17, fontFamily: Fonts.body, color: TextColors.muted },
+  sectionCard: { padding: Spacing.lg, gap: Spacing.md, borderRadius: Radius.xl, backgroundColor: Colors.white, ...Shadow.sm }, sectionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: Spacing.md }, sectionTitle: { fontSize: 16, lineHeight: 22, fontFamily: Fonts.heading, color: TextColors.primary }, textAction: { minHeight: 44, justifyContent: 'center', paddingHorizontal: Spacing.sm }, textActionLabel: { fontSize: 13, fontFamily: Fonts.bodySemi, color: TextColors.link }, compactRow: { minHeight: 64, flexDirection: 'row', alignItems: 'center', gap: Spacing.md }, flexCopy: { flex: 1, minWidth: 0 }, avatar: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center', backgroundColor: Colors.blue100 }, avatarText: { fontSize: 12, fontFamily: Fonts.bodySemi, color: Colors.blue }, rowTitle: { fontSize: 14, lineHeight: 20, fontFamily: Fonts.bodySemi, color: TextColors.primary }, rowMeta: { fontSize: 12, lineHeight: 18, fontFamily: Fonts.body, color: TextColors.muted }, bodyText: { fontSize: 13, lineHeight: 20, fontFamily: Fonts.body, color: TextColors.secondary },
+  compactButton: { minWidth: 120, paddingHorizontal: Spacing.md }, chipRow: { gap: Spacing.sm, paddingVertical: Spacing.xs }, chip: { minHeight: 44, justifyContent: 'center', paddingHorizontal: Spacing.lg, borderRadius: Radius.full, borderWidth: 1, borderColor: Colors.slate200, backgroundColor: Colors.white }, chipActive: { borderColor: Colors.blue, backgroundColor: Colors.blue100 }, chipText: { fontSize: 12, fontFamily: Fonts.bodyMed, color: TextColors.secondary }, chipTextActive: { color: Colors.blue, fontFamily: Fonts.bodySemi },
+  propertyCard: { minHeight: 128, flexDirection: 'row', alignItems: 'center', gap: Spacing.md, padding: Spacing.md, borderRadius: Radius.xl, backgroundColor: Colors.white, ...Shadow.sm }, propertyImage: { width: 92, height: 100, borderRadius: Radius.lg, backgroundColor: Colors.slate200 }, propertyCopy: { flex: 1, minWidth: 0, gap: 4 }, propertyName: { fontSize: 16, lineHeight: 21, fontFamily: Fonts.heading, color: TextColors.primary }, propertyPrice: { fontSize: 13, fontFamily: Fonts.bodySemi, color: TextColors.link }, badgeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.xs, alignItems: 'center' },
+  formCard: { padding: Spacing.lg, gap: Spacing.lg, borderRadius: Radius.xl, backgroundColor: Colors.white, ...Shadow.sm }, formSectionTitle: { marginTop: Spacing.sm, fontSize: 17, fontFamily: Fonts.heading, color: TextColors.primary }, formRow: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.md }, flexInput: { flexGrow: 1, minWidth: 130 }, fieldLabel: { marginBottom: 6, fontSize: 13, fontFamily: Fonts.bodyMed, color: TextColors.secondary }, required: { color: TextColors.danger }, pickerWrap: { minHeight: 50, justifyContent: 'center', borderWidth: 1, borderColor: Colors.slate200, borderRadius: Radius.lg, overflow: 'hidden', backgroundColor: Colors.white }, pickerError: { borderColor: TextColors.danger, borderWidth: 2 }, errorText: { marginTop: 6, fontSize: 12, fontFamily: Fonts.body, color: TextColors.danger },
+  applicationCard: { minHeight: 104, padding: Spacing.lg, gap: Spacing.sm, borderRadius: Radius.xl, backgroundColor: Colors.white, ...Shadow.sm }, actionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.md }, actionButton: { flexGrow: 1, minWidth: 150 }, detailRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: Spacing.lg, paddingVertical: Spacing.xs }, detailLabel: { fontSize: 13, fontFamily: Fonts.body, color: TextColors.muted }, detailValue: { flex: 1, textAlign: 'right', fontSize: 13, fontFamily: Fonts.bodySemi, color: TextColors.primary },
+  moreRow: { minHeight: 72, flexDirection: 'row', alignItems: 'center', gap: Spacing.md, padding: Spacing.lg, borderRadius: Radius.xl, backgroundColor: Colors.white, ...Shadow.sm }, moreIcon: { width: 42, height: 42, borderRadius: Radius.md, alignItems: 'center', justifyContent: 'center', backgroundColor: Colors.blue100 }, tenantCard: { minHeight: 88, flexDirection: 'row', alignItems: 'center', gap: Spacing.md, padding: Spacing.lg, borderRadius: Radius.xl, backgroundColor: Colors.white, ...Shadow.sm },
+  analyticsSummary: { alignItems: 'center', padding: Spacing.xxl, gap: Spacing.xs, borderRadius: Radius.xl, backgroundColor: Colors.navy }, analyticsValue: { fontSize: 38, fontFamily: Fonts.heading, color: Colors.white }, analyticsTitle: { fontSize: 16, fontFamily: Fonts.heading, color: Colors.white }, analyticsText: { fontSize: 13, fontFamily: Fonts.body, color: Colors.slate300 }, analyticsRate: { fontSize: 18, fontFamily: Fonts.heading, color: Colors.blue }, progressTrack: { height: 10, overflow: 'hidden', borderRadius: Radius.full, backgroundColor: Colors.slate100 }, progressFill: { height: '100%', minWidth: 2, borderRadius: Radius.full, backgroundColor: Colors.blue },
+  backAction: { minHeight: 44, alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: Spacing.xs, paddingRight: Spacing.md }, backActionText: { fontSize: 13, fontFamily: Fonts.bodySemi, color: TextColors.link }, bottomNav: { flexDirection: 'row', borderTopWidth: 1, borderTopColor: Colors.slate100, backgroundColor: Colors.white }, navItem: { flex: 1, minHeight: 58, alignItems: 'center', justifyContent: 'center', gap: 2, paddingTop: Spacing.xs }, navLabel: { fontSize: 10, fontFamily: Fonts.bodyMed, color: Colors.slate500 }, navLabelActive: { color: Colors.blue, fontFamily: Fonts.bodySemi }, navIndicator: { width: 24, height: 3, marginTop: 2, borderRadius: 2, backgroundColor: Colors.blue },
 });

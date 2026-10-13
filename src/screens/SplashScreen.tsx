@@ -1,26 +1,30 @@
-import React, { useEffect, useRef } from 'react';
-import { View, Text, Animated, StyleSheet, Dimensions } from 'react-native';
+import React, { useEffect } from 'react';
+import { View, Text, Animated, StyleSheet, useAnimatedValue } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { RootStackParamList } from '../../App';
+import type { RootStackParamList } from '../navigation/types';
 import { Colors, Fonts } from '../theme';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Splash'>;
 
 export default function SplashScreen({ navigation }: Props) {
-  const opacity = useRef(new Animated.Value(0)).current;
-  const translateY = useRef(new Animated.Value(20)).current;
-  const scale = useRef(new Animated.Value(0.8)).current;
+  const opacity = useAnimatedValue(0);
+  const translateY = useAnimatedValue(20);
+  const scale = useAnimatedValue(0.8);
 
   useEffect(() => {
-    Animated.parallel([
+    const animation = Animated.parallel([
       Animated.timing(opacity, { toValue: 1, duration: 700, useNativeDriver: true }),
       Animated.timing(translateY, { toValue: 0, duration: 700, useNativeDriver: true }),
       Animated.spring(scale, { toValue: 1, friction: 6, useNativeDriver: true }),
-    ]).start();
+    ]);
+    animation.start();
 
-    const timer = setTimeout(() => navigation.replace('Onboarding'), 2400);
-    return () => clearTimeout(timer);
-  }, []);
+    const timer = setTimeout(() => navigation.replace('Main'), 2400);
+    return () => {
+      clearTimeout(timer);
+      animation.stop();
+    };
+  }, [navigation, opacity, scale, translateY]);
 
   return (
     <View style={styles.container}>

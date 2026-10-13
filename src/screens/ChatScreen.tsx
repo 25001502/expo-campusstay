@@ -1,371 +1,85 @@
-import React, { useState, useRef } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  FlatList,
-  TouchableOpacity,
-  TextInput,
-  KeyboardAvoidingView,
-  Platform,
-} from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { RootStackParamList } from '../../App';
-import { Colors, Fonts, Radius } from '../theme';
-import { conversations, Message } from '../data';
+import React, { useEffect, useRef, useState } from 'react';
+import { FlatList, KeyboardAvoidingView, Platform, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { getConversationProperty } from '../communication';
+import { EmptyState, IconButton } from '../components/UI';
+import { properties, type Message } from '../data';
+import type { RootStackParamList } from '../navigation/types';
+import { useCommunication } from '../state/CommunicationContext';
+import { Colors, Fonts, Radius, Spacing, TextColors } from '../theme';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Chat'>;
 
 export default function ChatScreen({ navigation, route }: Props) {
-  const { convId } = route.params;
   const insets = useSafeAreaInsets();
-  const conv = conversations.find((c) => c.id === convId) ?? conversations[0];
-  const [messages, setMessages] = useState<Message[]>(conv.messages);
+  const { conversations, markConversationRead, sendMessage } = useCommunication();
+  const conversation = conversations.find((item) => item.id === route.params.convId);
   const [text, setText] = useState('');
-  const listRef = useRef<FlatList>(null);
+  const [feedback, setFeedback] = useState('');
+  const listRef = useRef<FlatList<Message>>(null);
+  const property = conversation ? getConversationProperty(conversation, properties) : undefined;
+
+  useEffect(() => {
+    if (conversation) markConversationRead(conversation.id);
+  }, [conversation, markConversationRead]);
+
+  if (!conversation) {
+    return <View style={[styles.container, { paddingTop: insets.top }]}><View style={styles.topBar}><IconButton icon="arrow-back" label="Go back" onPress={() => navigation.goBack()} /><Text accessibilityRole="header" style={styles.missingTitle}>Conversation</Text><View style={styles.headerSpacer} /></View><EmptyState icon={<Ionicons name="chatbubble-ellipses-outline" size={48} color={Colors.slate500} />} title="Conversation unavailable" description="This conversation does not exist or is no longer available." actionLabel="Back to Messages" onAction={() => navigation.goBack()} /></View>;
+  }
 
   const send = () => {
-    if (!text.trim()) return;
-
-    setMessages((prev) => [
-      ...prev,
-      {
-        id: `m${Date.now()}`,
-        sender: 'student',
-        text: text.trim(),
-        time: 'Now',
-      },
-    ]);
-
+    const trimmed = text.trim();
+    if (!trimmed) {
+      setFeedback('Enter a message before sending.');
+      return;
+    }
+    if (!sendMessage(conversation.id, trimmed)) return;
     setText('');
-    setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 50);
+    setFeedback('Message saved for this session. External delivery is not connected.');
+    requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: true }));
   };
 
   return (
-    <KeyboardAvoidingView
-      style={{ flex: 1 }}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      keyboardVerticalOffset={0}
-    >
+    <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <View style={[styles.container, { paddingTop: insets.top }]}>
-        {/* Top bar */}
         <View style={styles.topBar}>
-          <TouchableOpacity
-            style={styles.backButton}
-            activeOpacity={0.7}
-            onPress={() => navigation.goBack()}
-          >
-            <Ionicons
-              name="arrow-back"
-              size={24}
-              color={Colors.slate600}
-            />
-          </TouchableOpacity>
-
-          <View style={styles.topInfo}>
-            <View style={styles.topAvatar}>
-              <Text style={styles.topAvatarText}>{conv.avatar}</Text>
-            </View>
-
-            <View>
-              <Text style={styles.topName}>{conv.manager}</Text>
-
-              <View style={styles.onlineRow}>
-                <View style={styles.onlineDot} />
-                <Text style={styles.onlineText}>Online</Text>
-              </View>
-            </View>
-          </View>
-
-          <View style={{ width: 24 }} />
+          <IconButton icon="arrow-back" label="Back to messages" onPress={() => navigation.goBack()} />
+          <View style={styles.topInfo}><View importantForAccessibility="no-hide-descendants" style={styles.topAvatar}><Text style={styles.topAvatarText}>{conversation.avatar}</Text></View><View style={styles.topCopy}><Text accessibilityRole="header" numberOfLines={1} style={styles.topName}>{conversation.manager}</Text><Text style={styles.localLabel}>On-device messages</Text></View></View>
+          <View style={styles.headerSpacer} />
         </View>
-
-        <View style={styles.propLabel}>
-          <Text style={styles.propLabelText}>{conv.property}</Text>
-        </View>
-
+        {property ? (
+          <View style={styles.propertyRow}><Text numberOfLines={1} style={styles.propertyText}>{conversation.property}</Text><IconButton icon="chevron-forward" label={'Open ' + conversation.property + ' property details'} onPress={() => navigation.navigate('Property', { property })} iconSize={20} /></View>
+        ) : <View style={styles.propertyRow}><Text style={styles.propertyUnavailable}>{conversation.property} · Property details unavailable</Text></View>}
         <FlatList
           ref={listRef}
-          data={messages}
+          data={conversation.messages}
           keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.messageList}
-          onContentSizeChange={() =>
-            listRef.current?.scrollToEnd({ animated: false })
-          }
-          renderItem={({ item }) => {
-            const isMe = item.sender === 'student';
-
-            return (
-              <View
-                style={[
-                  styles.bubbleWrapper,
-                  isMe && styles.bubbleWrapperMe,
-                ]}
-              >
-                {!isMe && (
-                  <View style={styles.bubbleAvatar}>
-                    <Text style={styles.bubbleAvatarText}>
-                      {conv.avatar}
-                    </Text>
-                  </View>
-                )}
-
-                <View
-                  style={[
-                    styles.bubble,
-                    isMe ? styles.bubbleMe : styles.bubbleThem,
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.bubbleText,
-                      isMe && styles.bubbleTextMe,
-                    ]}
-                  >
-                    {item.text}
-                  </Text>
-
-                  <Text
-                    style={[
-                      styles.bubbleTime,
-                      isMe && styles.bubbleTimeMe,
-                    ]}
-                  >
-                    {item.time}
-                  </Text>
-                </View>
-              </View>
-            );
-          }}
+          contentContainerStyle={[styles.messageList, !conversation.messages.length && styles.emptyList]}
+          ListEmptyComponent={<EmptyState title="No messages yet" description="Write a message below to start this conversation." />}
+          keyboardShouldPersistTaps="handled"
+          onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: false })}
+          renderItem={({ item }) => <MessageBubble item={item} avatar={conversation.avatar} />}
         />
-
-        {/* Input bar */}
-        <View
-          style={[
-            styles.inputBar,
-            { paddingBottom: insets.bottom + 8 },
-          ]}
-        >
-          <TextInput
-            style={styles.input}
-            placeholder="Type a message..."
-            placeholderTextColor={Colors.slate400}
-            value={text}
-            onChangeText={setText}
-            onSubmitEditing={send}
-            returnKeyType="send"
-            multiline
-          />
-
-          <TouchableOpacity
-            style={styles.sendBtn}
-            onPress={send}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.sendIcon}>➤</Text>
-          </TouchableOpacity>
+        {feedback ? <Text accessibilityRole="alert" accessibilityLiveRegion="polite" style={styles.feedback}>{feedback}</Text> : null}
+        <View style={[styles.inputBar, { paddingBottom: insets.bottom + Spacing.sm }]}>
+          <TextInput accessibilityLabel="Message" accessibilityHint="Messages stay in this app session and are not sent externally" style={styles.input} placeholder="Write a message…" placeholderTextColor={Colors.slate500} value={text} onChangeText={(value) => { setText(value); setFeedback(''); }} returnKeyType="send" multiline maxLength={1000} />
+          <IconButton icon="send" label="Send message" hint="Saves this message locally; external delivery is not connected" onPress={send} disabled={!text.trim()} color={Colors.white} backgroundColor={Colors.blue} />
         </View>
       </View>
     </KeyboardAvoidingView>
   );
 }
 
+function MessageBubble({ item, avatar }: { item: Message; avatar: string }) {
+  const isStudent = item.sender === 'student';
+  return <View accessible accessibilityLabel={(isStudent ? 'You' : 'Property manager') + ' at ' + item.time + ': ' + item.text} style={[styles.bubbleWrapper, isStudent && styles.bubbleWrapperMe]}>{!isStudent ? <View importantForAccessibility="no-hide-descendants" style={styles.bubbleAvatar}><Text style={styles.bubbleAvatarText}>{avatar}</Text></View> : null}<View style={[styles.bubble, isStudent ? styles.bubbleMe : styles.bubbleThem]}><Text style={[styles.bubbleText, isStudent && styles.bubbleTextMe]}>{item.text}</Text><Text style={[styles.bubbleTime, isStudent && styles.bubbleTimeMe]}>{item.time}</Text></View></View>;
+}
+
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Colors.background,
-  },
-
-  topBar: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 10,
-    paddingRight: 16,
-    backgroundColor: Colors.white,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.slate100,
-  },
-
-  backButton: {
-    width: 52,
-    height: 52,
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: 8,
-  },
-
-  topInfo: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-  },
-
-  topAvatar: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: Colors.blue,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-
-  topAvatarText: {
-    color: Colors.white,
-    fontSize: 13,
-    fontFamily: Fonts.bodySemi,
-  },
-
-  topName: {
-    fontSize: 15,
-    fontFamily: Fonts.heading,
-    color: Colors.slate900,
-  },
-
-  onlineRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    marginTop: 1,
-  },
-
-  onlineDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 3.5,
-    backgroundColor: Colors.green600,
-  },
-
-  onlineText: {
-    fontSize: 11,
-    fontFamily: Fonts.body,
-    color: Colors.green600,
-  },
-
-  propLabel: {
-    alignSelf: "center",
-    backgroundColor: Colors.slate100,
-    paddingHorizontal: 12,
-    paddingVertical: 5,
-    borderRadius: Radius.full,
-    marginVertical: 10,
-  },
-
-  propLabelText: {
-    fontSize: 12,
-    fontFamily: Fonts.body,
-    color: Colors.slate500,
-  },
-
-  messageList: {
-    paddingHorizontal: 16,
-    gap: 12,
-    paddingBottom: 16,
-  },
-
-  bubbleWrapper: {
-    flexDirection: "row",
-    alignItems: "flex-end",
-    gap: 8,
-  },
-
-  bubbleWrapperMe: {
-    justifyContent: "flex-end",
-  },
-
-  bubbleAvatar: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: Colors.blue,
-    alignItems: "center",
-    justifyContent: "center",
-    flexShrink: 0,
-  },
-
-  bubbleAvatarText: {
-    color: Colors.white,
-    fontSize: 10,
-    fontFamily: Fonts.bodySemi,
-  },
-
-  bubble: {
-    maxWidth: "75%",
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 18,
-    gap: 4,
-  },
-
-  bubbleMe: {
-    backgroundColor: Colors.blue,
-    borderBottomRightRadius: 4,
-  },
-
-  bubbleThem: {
-    backgroundColor: Colors.white,
-    borderBottomLeftRadius: 4,
-    borderWidth: 1,
-    borderColor: Colors.slate100,
-  },
-
-  bubbleText: {
-    fontSize: 14,
-    fontFamily: Fonts.body,
-    color: Colors.slate800,
-    lineHeight: 20,
-  },
-
-  bubbleTextMe: {
-    color: Colors.white,
-  },
-
-  bubbleTime: {
-    fontSize: 10,
-    fontFamily: Fonts.body,
-    color: Colors.slate400,
-  },
-
-  bubbleTimeMe: {
-    color: "rgba(255,255,255,0.65)",
-  },
-
-  inputBar: {
-    flexDirection: "row",
-    alignItems: "flex-end",
-    gap: 10,
-    paddingHorizontal: 16,
-    paddingTop: 10,
-    backgroundColor: Colors.white,
-    borderTopWidth: 1,
-    borderTopColor: Colors.slate100,
-  },
-
-  input: {
-    flex: 1,
-    backgroundColor: Colors.slate100,
-    borderRadius: Radius.lg,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    fontSize: 14,
-    fontFamily: Fonts.body,
-    color: Colors.slate800,
-    maxHeight: 100,
-  },
-
-  sendBtn: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    backgroundColor: Colors.blue,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-
-  sendIcon: {
-    color: Colors.white,
-    fontSize: 16,
-  },
+  flex: { flex: 1 }, container: { flex: 1, backgroundColor: Colors.background }, topBar: { minHeight: 64, flexDirection: 'row', alignItems: 'center', paddingHorizontal: Spacing.sm, backgroundColor: Colors.white, borderBottomWidth: 1, borderBottomColor: Colors.slate100 }, topInfo: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: Spacing.sm }, topCopy: { flex: 1, minWidth: 0 }, topAvatar: { width: 38, height: 38, borderRadius: 19, backgroundColor: Colors.blue, alignItems: 'center', justifyContent: 'center' }, topAvatarText: { color: Colors.white, fontSize: 13, fontFamily: Fonts.bodySemi }, topName: { fontSize: 15, fontFamily: Fonts.heading, color: TextColors.primary }, localLabel: { fontSize: 11, fontFamily: Fonts.body, color: TextColors.muted }, headerSpacer: { width: 44 }, missingTitle: { flex: 1, textAlign: 'center', fontSize: 16, fontFamily: Fonts.heading, color: TextColors.primary },
+  propertyRow: { minHeight: 48, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: Spacing.xs, paddingLeft: Spacing.lg, paddingRight: Spacing.xs, backgroundColor: Colors.slate100 }, propertyText: { flexShrink: 1, fontSize: 12, fontFamily: Fonts.bodySemi, color: TextColors.link }, propertyUnavailable: { fontSize: 12, fontFamily: Fonts.body, color: TextColors.muted, textAlign: 'center' },
+  messageList: { padding: Spacing.lg, gap: Spacing.md, paddingBottom: Spacing.lg }, emptyList: { flexGrow: 1 }, bubbleWrapper: { flexDirection: 'row', alignItems: 'flex-end', gap: Spacing.sm }, bubbleWrapperMe: { justifyContent: 'flex-end' }, bubbleAvatar: { width: 28, height: 28, borderRadius: 14, backgroundColor: Colors.blue, alignItems: 'center', justifyContent: 'center' }, bubbleAvatarText: { color: Colors.white, fontSize: 10, fontFamily: Fonts.bodySemi }, bubble: { maxWidth: '78%', paddingHorizontal: 14, paddingVertical: 10, borderRadius: 18, gap: Spacing.xs }, bubbleMe: { backgroundColor: Colors.blue, borderBottomRightRadius: 4 }, bubbleThem: { backgroundColor: Colors.white, borderBottomLeftRadius: 4, borderWidth: 1, borderColor: Colors.slate100 }, bubbleText: { fontSize: 14, fontFamily: Fonts.body, color: TextColors.primary, lineHeight: 20 }, bubbleTextMe: { color: Colors.white }, bubbleTime: { fontSize: 10, fontFamily: Fonts.body, color: TextColors.muted }, bubbleTimeMe: { color: 'rgba(255,255,255,0.78)' },
+  feedback: { paddingHorizontal: Spacing.lg, paddingVertical: Spacing.sm, backgroundColor: Colors.blue50, color: TextColors.link, fontSize: 12, lineHeight: 17, fontFamily: Fonts.body }, inputBar: { flexDirection: 'row', alignItems: 'flex-end', gap: Spacing.sm, paddingHorizontal: Spacing.lg, paddingTop: Spacing.sm, backgroundColor: Colors.white, borderTopWidth: 1, borderTopColor: Colors.slate100 }, input: { flex: 1, minHeight: 44, maxHeight: 110, backgroundColor: Colors.slate100, borderRadius: Radius.lg, paddingHorizontal: 14, paddingVertical: 11, fontSize: 14, fontFamily: Fonts.body, color: TextColors.primary, textAlignVertical: 'top' },
 });
