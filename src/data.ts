@@ -1,3 +1,5 @@
+import type { RoomType } from './rooms';
+
 export const universities = [
   { id: 'uct', name: 'University of Cape Town', short: 'UCT', city: 'Cape Town' },
   { id: 'wits', name: 'University of the Witwatersrand', short: 'Wits', city: 'Johannesburg' },
@@ -33,7 +35,8 @@ export type Property = {
 
 export type Room = {
   id: string;
-  type: string;
+  type: RoomType;
+  variant?: 'Studio' | 'Apartment';
   capacity: number;
   price: number;
   available: number;
@@ -47,6 +50,11 @@ export type Manager = {
   verified: boolean;
 };
 
+// Retained for historical applications only; never part of current inventory.
+export const retiredRoomOfferings: readonly { propertyId: string; room: Room }[] = [
+  { propertyId: 'p1', room: { id: 'r3', type: 'Single', variant: 'Studio', capacity: 1, price: 4800, available: 2, bathroom: 'En-suite', furnished: true } },
+];
+
 export const properties: Property[] = [
   {
     id: 'p1',
@@ -56,10 +64,10 @@ export const properties: Property[] = [
     city: 'Thohoyandou',
     address: '12 University Road, Thohoyandou',
     distance: 0.8,
-    price: 3500,
+    price: 2200,
     rating: 4.8,
     reviews: 124,
-    available: 12,
+    available: 10,
     verified: true,
     description:
       'Campus View Residence offers modern, fully furnished student accommodation within walking distance of UNIVEN. Our secure complex features 24/7 security, high-speed Wi-Fi, and dedicated study rooms to help students thrive academically and socially.',
@@ -71,9 +79,8 @@ export const properties: Property[] = [
     ],
     amenities: ['Wi-Fi', 'Electricity', 'Water', 'Security', 'Parking', 'Laundry', 'Study Area', 'Kitchen'],
     rooms: [
-      { id: 'r1', type: 'Private', capacity: 1, price: 3500, available: 4, bathroom: 'En-suite', furnished: true },
+      { id: 'r1', type: 'Single', capacity: 1, price: 3500, available: 4, bathroom: 'En-suite', furnished: true },
       { id: 'r2', type: 'Shared', capacity: 2, price: 2200, available: 6, bathroom: 'Shared', furnished: true },
-      { id: 'r3', type: 'Studio', capacity: 1, price: 4800, available: 2, bathroom: 'En-suite', furnished: true },
     ],
     manager: { name: 'Thabo Mkhize', responseTime: '< 1 hour', verified: true },
     rules: [
@@ -106,8 +113,8 @@ export const properties: Property[] = [
     ],
     amenities: ['Wi-Fi', 'Electricity', 'Water', 'Security', 'Parking', 'Gym', 'Study Area', 'Kitchen', 'Laundry'],
     rooms: [
-      { id: 'r1', type: 'Private', capacity: 1, price: 5200, available: 3, bathroom: 'En-suite', furnished: true },
-      { id: 'r2', type: 'Apartment', capacity: 2, price: 7800, available: 5, bathroom: 'Shared', furnished: true },
+      { id: 'r1', type: 'Single', capacity: 1, price: 5200, available: 3, bathroom: 'En-suite', furnished: true },
+      { id: 'r2', type: 'Shared', variant: 'Apartment', capacity: 2, price: 7800, available: 5, bathroom: 'Shared', furnished: true },
     ],
     manager: { name: 'Priya Naidoo', responseTime: '< 2 hours', verified: true },
     rules: ['No smoking indoors', 'Pets not allowed', 'Quiet hours 23:00–07:00', 'Recycle and dispose waste correctly'],
@@ -135,7 +142,7 @@ export const properties: Property[] = [
     ],
     amenities: ['Wi-Fi', 'Electricity', 'Water', 'Security', 'Laundry', 'Study Area', 'Kitchen', 'Parking'],
     rooms: [
-      { id: 'r1', type: 'Private', capacity: 1, price: 4100, available: 2, bathroom: 'En-suite', furnished: true },
+      { id: 'r1', type: 'Single', capacity: 1, price: 4100, available: 2, bathroom: 'En-suite', furnished: true },
       { id: 'r2', type: 'Shared', capacity: 2, price: 2600, available: 3, bathroom: 'Shared', furnished: true },
     ],
     manager: { name: 'Liezel van der Berg', responseTime: '< 30 min', verified: true },
@@ -163,7 +170,7 @@ export const properties: Property[] = [
     ],
     amenities: ['Wi-Fi', 'Electricity', 'Water', 'Security', 'Gym', 'Study Area', 'Kitchen', 'Laundry'],
     rooms: [
-      { id: 'r1', type: 'Private', capacity: 1, price: 6200, available: 1, bathroom: 'En-suite', furnished: true },
+      { id: 'r1', type: 'Single', capacity: 1, price: 6200, available: 1, bathroom: 'En-suite', furnished: true },
       { id: 'r2', type: 'Shared', capacity: 2, price: 3800, available: 2, bathroom: 'Shared', furnished: true },
     ],
     manager: { name: 'Amahle Dlamini', responseTime: '< 1 hour', verified: true },
@@ -191,7 +198,7 @@ export const properties: Property[] = [
     ],
     amenities: ['Wi-Fi', 'Electricity', 'Water', 'Security', 'Laundry', 'Kitchen'],
     rooms: [
-      { id: 'r1', type: 'Studio', capacity: 1, price: 3900, available: 5, bathroom: 'En-suite', furnished: false },
+      { id: 'r1', type: 'Single', variant: 'Studio', capacity: 1, price: 3900, available: 5, bathroom: 'En-suite', furnished: false },
       { id: 'r2', type: 'Shared', capacity: 2, price: 2400, available: 4, bathroom: 'Shared', furnished: false },
     ],
     manager: { name: 'Roshan Govender', responseTime: '< 3 hours', verified: true },
@@ -217,6 +224,7 @@ export type Message = {
   sender: 'student' | 'manager';
   text: string;
   time: string;
+  source?: 'local';
 };
 
 export const conversations: Conversation[] = [

@@ -8,7 +8,7 @@ export type MainTabParamList = {
   Home: undefined;
   Explore: { query?: string; universityId?: string; quickFilter?: QuickFilter } | undefined;
   Favorites: undefined;
-  Bookings: undefined;
+  Bookings: { section?: 'Applications' | 'Upcoming' | 'Active' | 'Completed' | 'Cancelled' } | undefined;
   Messages: undefined;
   Profile: undefined;
 };
@@ -28,6 +28,11 @@ export type RootStackParamList = {
   Compare: { ids: string[] };
   Chat: { convId: string };
   Notifications: undefined;
+  PersonalInformation: undefined;
+  MyDocuments: undefined;
+  Security: undefined;
+  HelpSupport: undefined;
+  TermsPrivacy: undefined;
   Manager: undefined;
 };
 

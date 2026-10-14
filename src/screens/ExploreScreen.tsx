@@ -1,18 +1,23 @@
-import React, { useMemo, useState } from 'react';
-import { FlatList, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, useWindowDimensions, View } from 'react-native';
+import React, { useMemo, useRef, useState } from 'react';
+import { Alert, FlatList, Keyboard, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, useWindowDimensions, View } from 'react-native';
+import { useIsFocused } from '@react-navigation/native';
 import Slider from '@react-native-community/slider';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { StudentTabScreenProps } from '../navigation/types';
-import { Colors, Fonts, Radius, Spacing, TextColors } from '../theme';
+import { Colors, Fonts, Interaction, Radius, Spacing, TextColors } from '../theme';
 import { Btn, EmptyState, IconButton } from '../components/UI';
 import { PropertyCard } from '../components/PropertyCard';
-import { properties, universities } from '../data';
+import { properties, universities, type Property } from '../data';
 import {
   createDefaultDiscoveryFilters,
   DEFAULT_MAXIMUM_PRICE,
+  MINIMUM_PRICE,
+  PRICE_STEP,
   filterAndSortProperties,
+  formatDiscoveryPrice,
+  normalizeMaximumPrice,
   type DiscoverySort,
 } from '../discovery';
 import { useFavorites } from '../state/FavoritesContext';
@@ -20,6 +25,7 @@ import { useFavorites } from '../state/FavoritesContext';
 type Props = StudentTabScreenProps<'Explore'>;
 
 const amenityOptions = ['Wi-Fi', 'Security', 'Parking', 'Laundry', 'Study Area', 'Kitchen', 'Gym'];
+const searchPlaceholder = 'University, city or property...';
 const sortOptions: { value: DiscoverySort; label: string }[] = [
   { value: 'recommended', label: 'Recommended' },
   { value: 'price-low', label: 'Price: Low' },
@@ -30,16 +36,20 @@ const sortOptions: { value: DiscoverySort; label: string }[] = [
 
 export default function ExploreScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
-  const { height } = useWindowDimensions();
+  const { width, fontScale } = useWindowDimensions();
+  const isFocused = useIsFocused();
+  const listRef = useRef<FlatList<Property>>(null);
   const { isFavorite, toggleFavorite } = useFavorites();
   const defaults = createDefaultDiscoveryFilters();
   const [showFilters, setShowFilters] = useState(false);
   const [sort, setSort] = useState<DiscoverySort>(defaults.sort);
   const [maximumPrice, setMaximumPrice] = useState(defaults.maximumPrice);
   const [selectedAmenities, setSelectedAmenities] = useState<string[]>(defaults.amenities);
+  const [searchFocused, setSearchFocused] = useState(false);
   const query = route.params?.query ?? defaults.query;
   const universityId = route.params?.universityId;
   const quickFilter = route.params?.quickFilter;
+  const stackFilterActions = width < 360 || fontScale >= 1.5;
   const updateRouteContext = (updates: Partial<NonNullable<Props['route']['params']>>) => {
     navigation.setParams({ ...route.params, ...updates });
   };
@@ -60,6 +70,7 @@ export default function ExploreScreen({ navigation, route }: Props) {
     + (quickFilter ? 1 : 0);
 
   const toggleAmenity = (amenity: string) => {
+    if (!amenityOptions.includes(amenity)) return;
     setSelectedAmenities((current) => current.includes(amenity)
       ? current.filter((value) => value !== amenity)
       : [...current, amenity]);
@@ -67,44 +78,81 @@ export default function ExploreScreen({ navigation, route }: Props) {
 
   const clearFilters = () => {
     const next = createDefaultDiscoveryFilters();
-    navigation.setParams({ query: undefined, universityId: undefined, quickFilter: undefined });
     setMaximumPrice(next.maximumPrice);
     setSelectedAmenities(next.amenities);
+  };
+
+  const clearAll = () => {
+    clearFilters();
+    navigation.setParams({ query: undefined, universityId: undefined, quickFilter: undefined });
+    const next = createDefaultDiscoveryFilters();
     setSort(next.sort);
   };
 
-  return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
-      <StatusBar style="dark" />
+  const collapseFilters = () => {
+    setShowFilters(false);
+    listRef.current?.scrollToOffset({ offset: 0, animated: false });
+  };
+  const openProperty = (id: string) => {
+    const property = properties.find((item) => item.id === id);
+    if (!property) {
+      Alert.alert('Property unavailable', 'This listing is no longer available to view. Please choose another property.');
+      return;
+    }
+    navigation.navigate('Property', { property });
+  };
+
+  // One vertical scroll owner keeps the entire inline panel reachable at any
+  // text scale. A JSX header retains the input's identity while typing.
+  const listHeader = (
+    <View>
       <View style={styles.header}>
-        <Text accessibilityRole="header" style={styles.headerTitle}>Explore</Text>
+        <View style={styles.headerCopy}>
+          <Text accessibilityRole="header" style={styles.headerTitle}>Explore</Text>
+          <Text style={styles.headerSubtitle}>Find a place that fits you.</Text>
+        </View>
         {(query.trim() || activeFilterCount > 0 || sort !== 'recommended') ? (
-          <TouchableOpacity accessibilityRole="button" onPress={clearFilters} style={styles.headerClear}>
+          <TouchableOpacity accessibilityRole="button" accessibilityLabel="Clear all search and filters" onPress={clearAll} style={styles.headerClear}>
             <Text style={styles.headerClearText}>Clear all</Text>
           </TouchableOpacity>
         ) : null}
       </View>
 
       <View style={styles.searchRow}>
-        <View style={styles.searchBar}>
+        <View style={[styles.searchBar, searchFocused && styles.searchBarFocused]}>
           <Ionicons name="search" size={20} color={Colors.slate500} importantForAccessibility="no-hide-descendants" />
-          <TextInput
-            accessibilityLabel="Search accommodation"
-            style={styles.searchInput}
-            placeholder="University, city or property..."
-            placeholderTextColor={Colors.slate500}
-            value={query}
-            onChangeText={(value) => updateRouteContext({ query: value })}
-            returnKeyType="search"
-          />
+          <View style={styles.searchField}>
+            <TextInput
+              accessibilityLabel="Search accommodation"
+              accessibilityHint={searchPlaceholder}
+              style={styles.searchInput}
+              value={query}
+              onChangeText={(value) => updateRouteContext({ query: value })}
+              onFocus={() => setSearchFocused(true)}
+              onBlur={() => setSearchFocused(false)}
+              onSubmitEditing={Keyboard.dismiss}
+              returnKeyType="search"
+              autoCorrect={false}
+              multiline={false}
+              numberOfLines={1}
+              textAlignVertical="center"
+            />
+            {!query ? (
+              <View pointerEvents="none" importantForAccessibility="no-hide-descendants" accessibilityElementsHidden style={styles.searchPlaceholder}>
+                <Text numberOfLines={1} ellipsizeMode="tail" style={styles.searchPlaceholderText}>{searchPlaceholder}</Text>
+              </View>
+            ) : null}
+          </View>
+          {query ? <IconButton icon="close" label="Clear search" iconSize={18} onPress={() => updateRouteContext({ query: '' })} /> : null}
         </View>
         <IconButton
           icon="options-outline"
           label={activeFilterCount ? `Filters, ${activeFilterCount} active` : 'Filters'}
           hint={showFilters ? 'Hides filter options' : 'Shows filter options'}
           selected={showFilters || activeFilterCount > 0}
+          expanded={showFilters}
           selectedColor={Colors.white}
-          onPress={() => setShowFilters((visible) => !visible)}
+          onPress={() => { Keyboard.dismiss(); if (showFilters) collapseFilters(); else setShowFilters(true); }}
           style={styles.filterButton}
         />
       </View>
@@ -127,20 +175,20 @@ export default function ExploreScreen({ navigation, route }: Props) {
       ) : null}
 
       {showFilters ? (
-        <ScrollView style={{ maxHeight: Math.max(240, height * 0.55) }} contentContainerStyle={styles.filterPanel} keyboardShouldPersistTaps="handled" nestedScrollEnabled>
-          <Text style={styles.filterLabel}>Maximum price: R{maximumPrice.toLocaleString()}/month</Text>
+        <View style={styles.filterPanel} testID="explore-filters">
+          <Text style={styles.filterLabel}>Maximum price: {formatDiscoveryPrice(maximumPrice)}/month</Text>
           <Slider
             accessibilityLabel="Maximum monthly price"
-            accessibilityValue={{ min: 1000, max: DEFAULT_MAXIMUM_PRICE, now: maximumPrice, text: `R${maximumPrice.toLocaleString()} per month` }}
+            accessibilityValue={{ min: MINIMUM_PRICE, max: DEFAULT_MAXIMUM_PRICE, now: maximumPrice, text: `${formatDiscoveryPrice(maximumPrice)} per month` }}
             style={styles.priceSlider}
-            minimumValue={1000}
+            minimumValue={MINIMUM_PRICE}
             maximumValue={DEFAULT_MAXIMUM_PRICE}
             value={maximumPrice}
-            step={500}
+            step={PRICE_STEP}
             minimumTrackTintColor={Colors.blue}
             maximumTrackTintColor={Colors.slate200}
             thumbTintColor={Colors.blue}
-            onValueChange={setMaximumPrice}
+            onValueChange={(value) => setMaximumPrice((previous) => normalizeMaximumPrice(value, previous))}
           />
           <View style={styles.priceRow}><Text style={styles.priceHint}>R1,000</Text><Text style={styles.priceHint}>R10,000</Text></View>
 
@@ -155,7 +203,9 @@ export default function ExploreScreen({ navigation, route }: Props) {
                 <TouchableOpacity
                   key={amenity}
                   accessibilityRole="button"
+                  accessibilityLabel={`${amenity} amenity`}
                   accessibilityState={{ selected }}
+                  activeOpacity={Interaction.pressedOpacity}
                   onPress={() => toggleAmenity(amenity)}
                   style={[styles.amenityChip, selected && styles.amenityChipActive]}
                 >
@@ -164,11 +214,11 @@ export default function ExploreScreen({ navigation, route }: Props) {
               );
             })}
           </View>
-          <View style={styles.filterActions}>
-            <Btn variant="secondary" onPress={clearFilters} style={styles.filterActionButton}>Clear Filters</Btn>
-            <Btn onPress={() => setShowFilters(false)} style={styles.filterActionButton}>{`Show ${filtered.length}`}</Btn>
+          <View style={[styles.filterActions, stackFilterActions && styles.filterActionsStacked]}>
+            <Btn variant="secondary" onPress={clearFilters} style={[styles.filterActionButton, stackFilterActions && styles.filterActionButtonStacked]}>Clear filters</Btn>
+            <Btn onPress={collapseFilters} style={[styles.filterActionButton, stackFilterActions && styles.filterActionButtonStacked]}>{`Show ${filtered.length}`}</Btn>
           </View>
-        </ScrollView>
+        </View>
       ) : null}
 
       <View style={styles.sortContainer}>
@@ -178,7 +228,9 @@ export default function ExploreScreen({ navigation, route }: Props) {
             <TouchableOpacity
               key={option.value}
               accessibilityRole="button"
+              accessibilityLabel={`Sort by ${option.label}`}
               accessibilityState={{ selected: sort === option.value }}
+              activeOpacity={Interaction.pressedOpacity}
               onPress={() => setSort(option.value)}
               style={[styles.sortChip, sort === option.value && styles.sortChipActive]}
             >
@@ -187,20 +239,28 @@ export default function ExploreScreen({ navigation, route }: Props) {
           ))}
         </ScrollView>
       </View>
+      <Text accessibilityLiveRegion="polite" style={styles.resultsCount}>{filtered.length ? `${filtered.length} ${filtered.length === 1 ? 'property' : 'properties'} found` : 'No properties found'}</Text>
+    </View>
+  );
 
+  return (
+    <View style={[styles.container, { paddingTop: insets.top, paddingLeft: insets.left, paddingRight: insets.right }]}>
+      {isFocused ? <StatusBar style="dark" /> : null}
       <FlatList
+        ref={listRef}
         data={filtered}
         keyExtractor={(item) => item.id}
         keyboardShouldPersistTaps="handled"
-        contentContainerStyle={[styles.list, !filtered.length && styles.emptyList]}
-        ListHeaderComponent={<Text accessibilityLiveRegion="polite" style={styles.resultsCount}>{filtered.length} {filtered.length === 1 ? 'property' : 'properties'} found</Text>}
+        keyboardDismissMode="on-drag"
+        contentContainerStyle={[styles.list, { paddingBottom: Spacing.xxxl + insets.bottom }, !filtered.length && styles.emptyList]}
+        ListHeaderComponent={listHeader}
         ListEmptyComponent={
           <EmptyState
             icon={<Ionicons name="search-outline" size={42} color={Colors.slate500} />}
             title="No accommodation found"
-            description="Try a broader search, a higher price, or fewer amenities."
-            actionLabel="Clear Filters"
-            onAction={clearFilters}
+            description="Try a broader search, a higher price, or fewer amenities. Clear all to also remove your search and university or quick filters."
+            actionLabel="Clear all"
+            onAction={clearAll}
           />
         }
         renderItem={({ item }) => (
@@ -208,8 +268,9 @@ export default function ExploreScreen({ navigation, route }: Props) {
             variant="list"
             property={item}
             favorite={isFavorite(item.id)}
-            onToggleFavorite={() => toggleFavorite(item.id)}
-            onOpen={() => navigation.navigate('Property', { property: item })}
+            onToggleFavorite={() => { if (properties.some((property) => property.id === item.id)) toggleFavorite(item.id); }}
+            onOpen={() => openProperty(item.id)}
+            style={{ width: Math.max(0, width - insets.left - insets.right - Spacing.lg * 2), alignSelf: 'center' }}
           />
         )}
       />
@@ -219,39 +280,49 @@ export default function ExploreScreen({ navigation, route }: Props) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
-  header: { minHeight: 60, backgroundColor: Colors.white, paddingHorizontal: Spacing.xl, paddingVertical: 10, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: Spacing.sm },
-  headerTitle: { fontSize: 24, lineHeight: 31, fontFamily: Fonts.heading, color: TextColors.primary },
-  headerClear: { minHeight: 44, justifyContent: 'center', paddingHorizontal: Spacing.sm },
+  header: { backgroundColor: Colors.white, paddingHorizontal: Spacing.xl, paddingTop: Spacing.xl, paddingBottom: Spacing.lg, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: Spacing.sm },
+  headerCopy: { flex: 1, minWidth: 0, gap: Spacing.xs },
+  headerTitle: { flexShrink: 1, fontSize: 28, lineHeight: 35, letterSpacing: -0.5, fontFamily: Fonts.heading, color: TextColors.primary },
+  headerSubtitle: { fontSize: 13, lineHeight: 20, fontFamily: Fonts.body, color: TextColors.muted },
+  headerClear: { flexShrink: 1, minHeight: 44, justifyContent: 'center', paddingHorizontal: Spacing.sm },
   headerClearText: { fontSize: 13, fontFamily: Fonts.bodyMed, color: TextColors.link },
-  searchRow: { flexDirection: 'row', gap: 10, paddingHorizontal: Spacing.lg, paddingBottom: Spacing.lg, backgroundColor: Colors.white, borderBottomWidth: 1, borderBottomColor: Colors.slate100 },
-  searchBar: { flex: 1, minHeight: 48, flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.slate100, borderRadius: Radius.lg, paddingHorizontal: Spacing.md, gap: Spacing.sm },
-  searchInput: { flex: 1, minWidth: 0, minHeight: 48, fontSize: 14, lineHeight: 20, fontFamily: Fonts.body, color: TextColors.primary },
+  searchRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, paddingHorizontal: Spacing.lg, paddingBottom: Spacing.xl, backgroundColor: Colors.white },
+  searchBar: { flex: 1, minWidth: 0, minHeight: 48, flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.slate100, borderRadius: Radius.lg, borderWidth: Interaction.focusBorderWidth, borderColor: 'transparent', paddingHorizontal: Spacing.sm, gap: Spacing.xs },
+  searchBarFocused: { borderColor: Interaction.focusBorderColor },
+  searchField: { flex: 1, minWidth: 0 },
+  searchInput: { minWidth: 0, minHeight: 48, fontSize: 14, lineHeight: 20, fontFamily: Fonts.body, color: TextColors.primary },
+  // Android can wrap the native hint even on a single-line EditText. Render
+  // the same hint separately so enlarged text ellipsizes on one complete line.
+  searchPlaceholder: { ...StyleSheet.absoluteFill, justifyContent: 'center' },
+  searchPlaceholderText: { fontSize: 14, lineHeight: 20, fontFamily: Fonts.body, color: Colors.slate500 },
   filterButton: { width: 48, height: 48, borderRadius: Radius.lg, borderWidth: 1, borderColor: Colors.slate200 },
   contextRow: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm, paddingHorizontal: Spacing.lg, paddingVertical: Spacing.sm, backgroundColor: Colors.white },
-  contextChip: { minHeight: 44, flexDirection: 'row', alignItems: 'center', paddingLeft: Spacing.md, borderRadius: Radius.full, backgroundColor: Colors.blue100 },
-  contextText: { fontSize: 13, fontFamily: Fonts.bodyMed, color: TextColors.link },
+  contextChip: { maxWidth: '100%', minHeight: 44, flexDirection: 'row', alignItems: 'center', paddingLeft: Spacing.md, borderRadius: Radius.full, backgroundColor: Colors.blue100 },
+  contextText: { flexShrink: 1, paddingVertical: Spacing.sm, fontSize: 13, fontFamily: Fonts.bodyMed, color: TextColors.link },
   contextRemove: { width: 44, height: 44, minWidth: 44, minHeight: 44 },
-  filterPanel: { backgroundColor: Colors.white, borderBottomWidth: 1, borderBottomColor: Colors.slate100, padding: Spacing.lg, gap: 10 },
-  filterLabel: { fontSize: 13, lineHeight: 18, fontFamily: Fonts.bodySemi, color: TextColors.secondary },
+  filterPanel: { backgroundColor: Colors.white, borderWidth: 1, borderColor: Colors.slate200, borderRadius: Radius.xl, marginHorizontal: Spacing.lg, marginVertical: Spacing.md, padding: Spacing.lg, gap: Spacing.md },
+  filterLabel: { fontSize: 14, lineHeight: 21, fontFamily: Fonts.bodySemi, color: TextColors.primary },
   filterHelp: { fontSize: 12, lineHeight: 17, fontFamily: Fonts.body, color: TextColors.muted, marginTop: 2 },
   priceSlider: { width: '100%', height: 44 },
   priceRow: { flexDirection: 'row', justifyContent: 'space-between' },
-  priceHint: { fontSize: 11, color: TextColors.muted },
+  priceHint: { fontSize: 12, lineHeight: 17, fontFamily: Fonts.body, color: TextColors.muted },
   amenityRow: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm },
-  amenityChip: { minHeight: 44, justifyContent: 'center', paddingHorizontal: Spacing.md, borderRadius: Radius.full, borderWidth: 1, borderColor: Colors.slate200, backgroundColor: Colors.white },
+  amenityChip: { maxWidth: '100%', minHeight: 44, justifyContent: 'center', paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, borderRadius: Radius.full, borderWidth: 1, borderColor: Colors.slate200, backgroundColor: Colors.white },
   amenityChipActive: { backgroundColor: Colors.blue, borderColor: Colors.blue },
   amenityText: { fontSize: 12, fontFamily: Fonts.bodyMed, color: TextColors.secondary },
   amenityTextActive: { color: Colors.white },
-  filterActions: { flexDirection: 'row', gap: 10 },
+  filterActions: { flexDirection: 'row', gap: Spacing.sm, paddingTop: Spacing.sm, borderTopWidth: 1, borderTopColor: Colors.slate100 },
+  filterActionsStacked: { flexDirection: 'column' },
   filterActionButton: { flex: 1, paddingHorizontal: Spacing.sm },
-  sortContainer: { minHeight: 52, backgroundColor: Colors.white, borderBottomWidth: 4, borderBottomColor: Colors.slate100 },
-  sortRow: { paddingHorizontal: Spacing.lg, alignItems: 'center', gap: Spacing.sm, minHeight: 48 },
+  filterActionButtonStacked: { flex: 0 },
+  sortContainer: { minHeight: 52, backgroundColor: Colors.white, borderBottomWidth: 1, borderBottomColor: Colors.slate200 },
+  sortRow: { paddingHorizontal: Spacing.lg, paddingVertical: Spacing.sm, alignItems: 'center', gap: Spacing.sm, minHeight: 48 },
   sortLabel: { fontSize: 12, color: TextColors.muted, fontFamily: Fonts.body },
-  sortChip: { minHeight: 44, paddingHorizontal: Spacing.md, borderRadius: Radius.full, backgroundColor: Colors.slate100, justifyContent: 'center', alignItems: 'center' },
-  sortChipActive: { backgroundColor: Colors.slate900 },
+  sortChip: { minHeight: 44, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, borderRadius: Radius.full, backgroundColor: Colors.slate100, justifyContent: 'center', alignItems: 'center' },
+  sortChipActive: { backgroundColor: Colors.navy },
   sortChipText: { fontSize: 12, color: TextColors.secondary, lineHeight: 17, fontFamily: Fonts.bodyMed },
   sortChipTextActive: { color: Colors.white },
-  list: { padding: Spacing.lg, gap: 14, paddingBottom: 100 },
+  list: { gap: Spacing.lg },
   emptyList: { flexGrow: 1 },
-  resultsCount: { fontSize: 12, lineHeight: 17, color: TextColors.muted, fontFamily: Fonts.body, marginBottom: Spacing.sm },
+  resultsCount: { fontSize: 13, lineHeight: 18, color: TextColors.secondary, fontFamily: Fonts.bodyMed, paddingHorizontal: Spacing.lg, paddingTop: Spacing.xl },
 });

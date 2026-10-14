@@ -1,4 +1,5 @@
 import { properties as studentProperties, universities, type Property, type Room } from './data';
+import { classifyRoomCapacity, getCurrentRooms, isRoomType } from './rooms';
 
 export const MANAGER_PROPERTY_IDS = ['p1', 'p2'] as const;
 export type ManagerPropertyFilter = 'all' | 'available' | 'full';
@@ -33,6 +34,7 @@ export type PropertyFormFields = {
   type: string;
   roomType: string;
   roomPrice: string;
+  roomCapacity: string;
   roomAvailable: string;
   amenities: string;
 };
@@ -68,11 +70,14 @@ export const managerTenants: ManagerTenant[] = [
 ];
 
 function cloneProperty(property: Property): Property {
+  const rooms = getCurrentRooms(property).map((room) => ({ ...room }));
   return {
     ...property,
     images: [...property.images],
     amenities: [...property.amenities],
-    rooms: property.rooms.map((room) => ({ ...room })),
+    rooms,
+    available: rooms.reduce((total, room) => total + room.available, 0),
+    price: rooms.length ? Math.min(...rooms.map((room) => room.price)) : property.price,
     manager: { ...property.manager },
     rules: [...property.rules],
     tags: [...property.tags],
@@ -94,7 +99,7 @@ export function createManagerState(allProperties: readonly Property[] = studentP
 }
 
 export function getPropertyAvailableRooms(property: Property) {
-  return property.rooms.reduce((total, room) => total + Math.max(0, room.available), 0);
+  return getCurrentRooms(property).reduce((total, room) => total + Math.max(0, room.available), 0);
 }
 
 export function getManagerMetrics(state: Pick<ManagerState, 'properties' | 'applications' | 'tenants'>) {
@@ -141,7 +146,7 @@ export function filterManagerTenants(tenants: readonly ManagerTenant[], property
 }
 
 export function emptyPropertyForm(): PropertyFormFields {
-  return { name: '', city: '', address: '', university: '', description: '', type: 'Residence', roomType: '', roomPrice: '', roomAvailable: '', amenities: '' };
+  return { name: '', city: '', address: '', university: '', description: '', type: 'Residence', roomType: '', roomPrice: '', roomCapacity: '', roomAvailable: '', amenities: '' };
 }
 
 export function propertyToForm(property: Property): PropertyFormFields {
@@ -155,6 +160,7 @@ export function propertyToForm(property: Property): PropertyFormFields {
     type: property.type,
     roomType: room?.type ?? '',
     roomPrice: room ? String(room.price) : '',
+    roomCapacity: room ? String(room.capacity) : '',
     roomAvailable: room ? String(room.available) : '',
     amenities: property.amenities.join(', '),
   };
@@ -168,7 +174,9 @@ export function validatePropertyForm(fields: PropertyFormFields): FieldErrors<ke
   if (!fields.university.trim()) errors.university = 'Select a university.';
   if (!fields.description.trim()) errors.description = 'Enter a description.';
   if (!fields.type.trim()) errors.type = 'Enter a property type.';
-  if (!fields.roomType.trim()) errors.roomType = 'Enter a room type.';
+  if (!isRoomType(fields.roomType)) errors.roomType = 'Select Single Room or Shared Room.';
+  const capacity = Number(fields.roomCapacity);
+  if (!fields.roomCapacity?.trim() || classifyRoomCapacity(capacity) !== fields.roomType) errors.roomCapacity = 'Use capacity 1 for Single Room or a whole number of 2 or more for Shared Room.';
   const price = Number(fields.roomPrice);
   if (!fields.roomPrice.trim() || !Number.isFinite(price) || price <= 0) errors.roomPrice = 'Enter a price greater than zero.';
   const available = Number(fields.roomAvailable);
@@ -177,6 +185,7 @@ export function validatePropertyForm(fields: PropertyFormFields): FieldErrors<ke
 }
 
 export function createManagerProperty(fields: PropertyFormFields, sequence: number): Property {
+  if (Object.keys(validatePropertyForm(fields)).length || !isRoomType(fields.roomType)) throw new Error('Valid property and room details are required.');
   const id = `manager-property-${sequence}`;
   const price = Number(fields.roomPrice);
   const available = Number(fields.roomAvailable);
@@ -197,7 +206,7 @@ export function createManagerProperty(fields: PropertyFormFields, sequence: numb
     description: fields.description.trim(),
     images: [],
     amenities,
-    rooms: [{ id: `${id}-room-1`, type: fields.roomType.trim(), capacity: 1, price, available, bathroom: 'Not specified', furnished: false }],
+    rooms: [{ id: `${id}-room-1`, type: fields.roomType, capacity: Number(fields.roomCapacity), price, available, bathroom: 'Not specified', furnished: false }],
     manager: { name: 'Property Manager', responseTime: 'Not available', verified: false },
     rules: [],
     tags: [],
@@ -228,7 +237,7 @@ export function validateRoomEdit(fields: RoomEditFields): FieldErrors<keyof Room
 }
 
 export function updateManagerRoom(property: Property, roomId: string, fields: RoomEditFields): Property {
-  const rooms = property.rooms.map((room) => room.id === roomId
+  const rooms = getCurrentRooms(property).map((room) => room.id === roomId
     ? { ...room, price: Number(fields.price), available: Number(fields.available) }
     : room);
   const available = rooms.reduce((total, room) => total + room.available, 0);

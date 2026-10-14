@@ -1,9 +1,10 @@
 import { properties, universities, type Property, type Room } from './data';
+import { getCurrentRooms } from './rooms';
 
 export const quickFilters = [
   'Near Campus',
   'Under R5,000',
-  'Private Room',
+  'Single Room',
   'Shared Room',
   'Available Now',
   'Wi-Fi',
@@ -23,6 +24,21 @@ export type DiscoveryFilters = {
 };
 
 export const DEFAULT_MAXIMUM_PRICE = 10000;
+export const MINIMUM_PRICE = 1000;
+export const PRICE_STEP = 500;
+
+// Native slider callbacks can contain intermediate values. Keep state on the
+// supported steps, and retain the last valid value for an invalid callback.
+export function normalizeMaximumPrice(value: number, previous = DEFAULT_MAXIMUM_PRICE) {
+  const validPrevious = Number.isFinite(previous) ? previous : DEFAULT_MAXIMUM_PRICE;
+  const candidate = Number.isFinite(value) ? value : validPrevious;
+  return Math.min(DEFAULT_MAXIMUM_PRICE, Math.max(MINIMUM_PRICE,
+    MINIMUM_PRICE + Math.round((candidate - MINIMUM_PRICE) / PRICE_STEP) * PRICE_STEP));
+}
+
+export function formatDiscoveryPrice(value: number) {
+  return `R${value.toLocaleString('en-US')}`;
+}
 
 export function createDefaultDiscoveryFilters(): DiscoveryFilters {
   return {
@@ -61,19 +77,19 @@ export function propertyMatchesQuickFilter(property: Property, filter?: QuickFil
   if (!filter) return true;
   switch (filter) {
     case 'Near Campus':
-      return property.distance <= 1;
+      return Number.isFinite(property.distance) && property.distance >= 0 && property.distance <= 1;
     case 'Under R5,000':
       return property.price < 5000;
-    case 'Private Room':
-      return property.rooms.some((room) => room.type === 'Private' && room.available > 0);
+    case 'Single Room':
+      return getCurrentRooms(property).some((room) => room.type === 'Single' && room.available > 0);
     case 'Shared Room':
-      return property.rooms.some((room) => room.type === 'Shared' && room.available > 0);
+      return getCurrentRooms(property).some((room) => room.type === 'Shared' && room.available > 0);
     case 'Available Now':
       return property.available > 0;
     case 'Wi-Fi':
       return property.amenities.includes('Wi-Fi');
     case 'Furnished':
-      return property.rooms.some((room) => room.furnished && room.available > 0);
+      return getCurrentRooms(property).some((room) => room.furnished && room.available > 0);
   }
 }
 
@@ -85,17 +101,24 @@ export function filterAndSortProperties(
     .map((property, index) => ({ property, index }))
     .filter(({ property }) =>
       propertyMatchesQuery(property, filters.query)
+      && Number.isFinite(property.price) && property.price >= 0
       && property.price <= filters.maximumPrice
       && (!filters.universityId || property.university === filters.universityId)
       && filters.amenities.every((amenity) => property.amenities.includes(amenity))
       && propertyMatchesQuickFilter(property, filters.quickFilter));
 
+  const compareNumber = (left: number, right: number, descending = false, maximum = Infinity) => {
+    const leftValid = Number.isFinite(left) && left >= 0 && left <= maximum;
+    const rightValid = Number.isFinite(right) && right >= 0 && right <= maximum;
+    if (!leftValid || !rightValid) return Number(rightValid) - Number(leftValid);
+    return descending ? right - left : left - right;
+  };
   const compare = (left: Property, right: Property) => {
     switch (filters.sort) {
-      case 'price-low': return left.price - right.price;
-      case 'price-high': return right.price - left.price;
-      case 'rating': return right.rating - left.rating;
-      case 'distance': return left.distance - right.distance;
+      case 'price-low': return compareNumber(left.price, right.price);
+      case 'price-high': return compareNumber(left.price, right.price, true);
+      case 'rating': return compareNumber(left.rating, right.rating, true, 5);
+      case 'distance': return compareNumber(left.distance, right.distance);
       case 'recommended': return 0;
     }
   };
@@ -113,7 +136,7 @@ export function createUniversityDiscoveryContext(universityId: string) {
 
 export function resolveSelectedRoom(property: Property, roomId?: string): Room | undefined {
   if (!roomId) return undefined;
-  return property.rooms.find((room) => room.id === roomId && room.available > 0);
+  return getCurrentRooms(property).find((room) => room.id === roomId && room.available > 0);
 }
 
 export function toggleStableId(ids: readonly string[], id: string) {

@@ -1,4 +1,5 @@
 import React from 'react';
+import { StatusBar } from 'expo-status-bar';
 import { Alert, FlatList, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { FontAwesomeIcon } from '@fortawesome/react-native-fontawesome';
 import { faBell, faCircleCheck, faCreditCard, faHouse, faMessage } from '@fortawesome/free-solid-svg-icons';
@@ -22,27 +23,28 @@ const typeConfig = {
 
 export default function NotificationsScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
-  const { notifications, unreadNotificationCount, markNotificationRead, markAllNotificationsRead } = useCommunication();
+  const { conversations, notifications, unreadNotificationCount, markNotificationRead, markAllNotificationsRead } = useCommunication();
   const openNotification = (item: AppNotification) => {
     markNotificationRead(item.id);
     const conversationId = getNotificationConversationId(item.id);
-    if (conversationId) navigation.navigate('Chat', { convId: conversationId });
+    if (conversationId && conversations.some((conversation) => conversation.id === conversationId)) navigation.navigate('Chat', { convId: conversationId });
     else Alert.alert('No destination available', 'This notification has no connected destination or external action.');
   };
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
+      <StatusBar style="dark" />
       <ScreenHeader title="Notifications" subtitle={unreadNotificationCount ? unreadNotificationCount + ' unread notifications' : 'All notifications read'} onBack={() => navigation.goBack()} trailingAction={<IconButton icon="checkmark-done" label="Mark all notifications as read" disabled={!unreadNotificationCount} onPress={markAllNotificationsRead} />} />
       <View style={styles.localBanner}><Text style={styles.localBannerText}>Notification activity is stored for this session. External delivery is not connected.</Text></View>
       <FlatList
         data={notifications}
         keyExtractor={(item) => item.id}
-        contentContainerStyle={[styles.list, !notifications.length && styles.emptyList]}
+        contentContainerStyle={[styles.list, { paddingBottom: Math.max(insets.bottom, Spacing.xxl) }, !notifications.length && styles.emptyList]}
         ListEmptyComponent={<EmptyState icon={<FontAwesomeIcon icon={faBell} size={42} color={Colors.slate500} />} title="No notifications" description="Notifications will appear here." />}
         renderItem={({ item }) => {
           const config = typeConfig[item.type] ?? typeConfig.system;
           return <TouchableOpacity accessibilityRole="button" accessibilityLabel={(item.read ? 'Read' : 'Unread') + ' ' + config.label + ': ' + item.title + '. ' + item.message + '. ' + item.time} accessibilityHint="Marks this item read and opens its destination when available" onPress={() => openNotification(item)} style={[styles.row, !item.read && styles.rowUnread]}>
             <View importantForAccessibility="no-hide-descendants" style={[styles.iconBox, { backgroundColor: config.bg }]}><FontAwesomeIcon icon={config.icon} size={20} color={config.color} /></View>
-            <View style={styles.content}><Text style={styles.typeLabel}>{config.label}</Text><Text style={styles.title}>{item.title}</Text><Text style={styles.message}>{item.message}</Text><Text style={styles.time}>{item.time}</Text></View>
+            <View style={styles.content}><Text style={styles.typeLabel}>{config.label}</Text><Text style={styles.title}>{item.title}</Text><Text style={styles.message}>{item.message}</Text><Text style={styles.time}>{item.read ? 'Read' : 'Unread'} · {item.time}</Text></View>
             {!item.read ? <View importantForAccessibility="no-hide-descendants" style={styles.unreadDot} /> : null}
           </TouchableOpacity>;
         }}

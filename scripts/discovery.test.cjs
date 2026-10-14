@@ -16,7 +16,7 @@ function loadTypeScriptModule(file, modules = {}) {
   vm.runInNewContext(compiled, {
     module,
     exports: module.exports,
-    require: (name) => modules[name] ?? require(name),
+    require: (name) => modules[name] ?? (name.startsWith('.') && fs.existsSync(path.resolve(path.dirname(file), name) + '.ts') ? loadTypeScriptModule(path.resolve(path.dirname(file), name) + '.ts', modules) : require(name)),
     Set,
   }, { filename: file });
   return module.exports;
@@ -56,7 +56,7 @@ test('maximum price filters numeric property prices', () => {
 
 test('Home quick filters map to supported property data', () => {
   assert.deepEqual(ids(discovery.filterAndSortProperties(data.properties, { ...defaults(), quickFilter: 'Near Campus' })), ['p1', 'p3', 'p4']);
-  assert.deepEqual(ids(discovery.filterAndSortProperties(data.properties, { ...defaults(), quickFilter: 'Private Room' })), ['p1', 'p2', 'p3', 'p4']);
+  assert.deepEqual(ids(discovery.filterAndSortProperties(data.properties, { ...defaults(), quickFilter: 'Single Room' })), ['p1', 'p2', 'p3', 'p4', 'p5']);
 });
 
 test('amenity filters use AND matching', () => {

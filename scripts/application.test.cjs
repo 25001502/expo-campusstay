@@ -16,7 +16,7 @@ function loadTypeScriptModule(file, modules = {}) {
   vm.runInNewContext(compiled, {
     module,
     exports: module.exports,
-    require: (name) => modules[name] ?? require(name),
+    require: (name) => modules[name] ?? (name.startsWith('.') && fs.existsSync(path.resolve(path.dirname(file), name) + '.ts') ? loadTypeScriptModule(path.resolve(path.dirname(file), name) + '.ts', modules) : require(name)),
     Date,
     Object,
     Number,
@@ -58,10 +58,10 @@ test('unavailable room navigation is rejected', () => {
 
 test('changing rooms updates the review room and price', () => {
   const draft = validDraft();
-  draft.selectedRoomId = 'r3';
+  draft.selectedRoomId = 'r1';
   const review = application.buildApplicationReview(draft, property);
-  assert.equal(review.roomType, 'Studio Room');
-  assert.equal(review.roomPrice, 4800);
+  assert.equal(review.roomType, 'Single Room');
+  assert.equal(review.roomPrice, 3500);
 });
 
 test('personal information requires every existing UI field', () => {

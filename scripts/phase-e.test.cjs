@@ -11,14 +11,14 @@ function load(file, modules = {}) {
     compilerOptions: { module: ts.ModuleKind.CommonJS, esModuleInterop: true }, fileName: file,
   }).outputText;
   const module = { exports: {} };
-  vm.runInNewContext(compiled, { module, exports: module.exports, require: (name) => modules[name] ?? require(name), Date, Object, Number, String, Set, Math }, { filename: file });
+  vm.runInNewContext(compiled, { module, exports: module.exports, require: (name) => modules[name] ?? (name.startsWith('.') && fs.existsSync(path.resolve(path.dirname(file), name) + '.ts') ? load(path.resolve(path.dirname(file), name) + '.ts', modules) : require(name)), Date, Object, Number, String, Set, Math }, { filename: file });
   return module.exports;
 }
 const source = (file) => fs.readFileSync(path.join(root, file), 'utf8');
 const data = load(path.join(root, 'src/data.ts'));
 const manager = load(path.join(root, 'src/manager.ts'), { './data': data });
 const initial = () => manager.createManagerState(data.properties);
-const validFields = () => ({ name: 'Library Court', city: 'Pretoria', address: '10 College Road', university: 'up', description: 'Student accommodation near campus.', type: 'Residence', roomType: 'Private', roomPrice: '4100', roomAvailable: '5', amenities: 'Wi-Fi, Study Area' });
+const validFields = () => ({ name: 'Library Court', city: 'Pretoria', address: '10 College Road', university: 'up', description: 'Student accommodation near campus.', type: 'Residence', roomType: 'Single', roomCapacity: '1', roomPrice: '4100', roomAvailable: '5', amenities: 'Wi-Fi, Study Area' });
 
 test('manager primary and More navigation destinations are present', () => {
   const screen = source('src/screens/ManagerScreen.tsx');
@@ -47,7 +47,7 @@ test('property availability filters use room totals', () => {
 });
 test('property creation validates every supported required field', () => {
   const errors = manager.validatePropertyForm(manager.emptyPropertyForm());
-  for (const key of ['name', 'city', 'address', 'university', 'description', 'roomType', 'roomPrice', 'roomAvailable']) assert.ok(errors[key]);
+  for (const key of ['name', 'city', 'address', 'university', 'description', 'roomType', 'roomCapacity', 'roomPrice', 'roomAvailable']) assert.ok(errors[key]);
 });
 test('property creation accepts valid local data', () => assert.equal(Object.keys(manager.validatePropertyForm(validFields())).length, 0));
 test('new properties receive stable sequence IDs', () => {

@@ -1,4 +1,5 @@
 import type { Property, Room } from './data';
+import { getCurrentRooms, getHistoricalRoom, getRoomLabel, isRetiredRoom } from './rooms';
 
 export const APPLICATION_STEPS = ['Room', 'Personal', 'Documents', 'Emergency', 'Review'] as const;
 export type ApplicationStep = 0 | 1 | 2 | 3 | 4;
@@ -81,7 +82,7 @@ export function isValidPhone(value: string) {
 
 export function createApplicationDraft(property: Property, selectedRoomId?: string): ApplicationDraft {
   const selectedRoom = selectedRoomId
-    ? property.rooms.find((room) => room.id === selectedRoomId && room.available > 0)
+    ? getCurrentRooms(property).find((room) => room.id === selectedRoomId && room.available > 0)
     : undefined;
 
   return {
@@ -102,7 +103,7 @@ export function createApplicationDraft(property: Property, selectedRoomId?: stri
 
 export function getAvailableSelectedRoom(property: Property, draft: ApplicationDraft): Room | undefined {
   if (draft.propertyId !== property.id || !draft.selectedRoomId) return undefined;
-  return property.rooms.find((room) => room.id === draft.selectedRoomId && room.available > 0);
+  return getCurrentRooms(property).find((room) => room.id === draft.selectedRoomId && room.available > 0);
 }
 
 export function validateApplicationStep(
@@ -113,7 +114,7 @@ export function validateApplicationStep(
   const errors: ApplicationErrors = {};
 
   if (step === 0 && !getAvailableSelectedRoom(property, draft)) {
-    errors.selectedRoomId = property.rooms.some((room) => room.available > 0)
+    errors.selectedRoomId = getCurrentRooms(property).some((room) => room.available > 0)
       ? 'Select an available room to continue.'
       : 'This property has no rooms available for an application.';
   }
@@ -191,7 +192,7 @@ export function buildApplicationReview(draft: ApplicationDraft, property: Proper
   if (!room) return undefined;
   return {
     propertyName: property.name,
-    roomType: `${room.type} Room`,
+    roomType: getRoomLabel(room),
     roomPrice: room.price,
     personal: { ...draft.personal },
     documents: DOCUMENT_CATEGORIES.map((category) => ({
@@ -213,6 +214,9 @@ export function createSubmittedApplication(
   submittedAt: string,
   sequence: number,
 ): SubmittedApplication {
+  if (draft.selectedRoomId && isRetiredRoom(draft.propertyId, draft.selectedRoomId)) {
+    throw new Error('This room is no longer listed for new applications.');
+  }
   const normalized = normalizeApplicationDraft(draft);
   return {
     id: generateDemoApplicationId(submittedAt, sequence),
@@ -239,14 +243,14 @@ export function getSubmittedApplicationSummary(
   application: SubmittedApplication,
   property: Property,
 ): SubmittedApplicationSummary | undefined {
-  if (application.propertyId !== property.id || !application.selectedRoomId) return undefined;
-  const room = property.rooms.find((item) => item.id === application.selectedRoomId);
+  if (application.status !== 'saved-locally' || application.propertyId !== property.id || !application.selectedRoomId) return undefined;
+  const room = getHistoricalRoom(property, application.selectedRoomId);
   if (!room) return undefined;
   return {
     id: application.id,
     propertyName: property.name,
     city: property.city,
-    roomType: `${room.type} Room`,
+    roomType: `${getRoomLabel(room)}${isRetiredRoom(property.id, room.id) ? ' · No longer listed' : ''}`,
     roomPrice: room.price,
     submittedAt: application.submittedAt,
     statusLabel: 'Saved locally',
@@ -256,4 +260,11 @@ export function getSubmittedApplicationSummary(
 
 export function isSubmittedApplicationABooking() {
   return false;
+}
+
+export function formatApplicationDate(value: string) {
+  const date = new Date(value);
+  return value.trim() && Number.isFinite(date.getTime())
+    ? date.toLocaleString('en-ZA', { dateStyle: 'medium', timeStyle: 'short' })
+    : 'Date unavailable';
 }

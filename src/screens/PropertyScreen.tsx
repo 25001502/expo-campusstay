@@ -1,489 +1,177 @@
-import React, { useState } from 'react';
-import {
-  Alert,
-  View,
-  Text,
-  ScrollView,
-  TouchableOpacity,
-  StyleSheet,
-  FlatList,
-  useWindowDimensions,
-} from 'react-native';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Alert, View, Text, ScrollView, TouchableOpacity, StyleSheet, FlatList, useWindowDimensions } from 'react-native';
+import { StatusBar } from 'expo-status-bar';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { NativeStackScreenProps } from '@react-navigation/native-stack';
+import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/types';
-import { Colors, Fonts, Radius, TextColors } from '../theme';
-import { Badge, VerifiedBadge, StarRating, Btn, Divider, IconButton } from '../components/UI';
+import type { Property, Room } from '../data';
+import { Colors, Fonts, Radius, Spacing, TextColors } from '../theme';
+import { Badge, StarRating, Btn, Divider, IconButton, EmptyState } from '../components/UI';
 import { Ionicons } from '@expo/vector-icons';
 import { RemoteImage } from '../components/RemoteImage';
 import { getConversationForProperty } from '../communication';
+import { formatMonthlyRent } from '../bookings';
+import { getCurrentRooms, getRoomLabel, groupRoomOfferings, getListedRoomCount, type RoomType } from '../rooms';
+import { getPropertyAddress, getPropertyImages, getGalleryIndex, getStartingRoomPrice, getRatingMetadata, getPropertyReviewRecords, illustrativeReviewExamples } from '../propertyDetails';
 import { useCommunication } from '../state/CommunicationContext';
 import { useFavorites } from '../state/FavoritesContext';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Property'>;
 const TABS = ['About', 'Rooms', 'Reviews'] as const;
 type Tab = typeof TABS[number];
+type DetailState = { propertyId: string; image: number; tab: Tab; roomId: string | null; examples: boolean };
+const initialState = (propertyId: string): DetailState => ({ propertyId, image: 0, tab: 'About', roomId: null, examples: false });
 
 export default function PropertyScreen({ navigation, route }: Props) {
   const { property } = route.params;
   const insets = useSafeAreaInsets();
   const { width, fontScale } = useWindowDimensions();
+  const contentWidth = Math.max(1, width - insets.left - insets.right);
+  const expanded = contentWidth < 360 || fontScale >= 1.3;
+  const scrollableTabs = contentWidth < 400 && fontScale >= 1.7;
   const { isFavorite, toggleFavorite } = useFavorites();
   const { conversations } = useCommunication();
-  const [imgIdx, setImgIdx] = useState(0);
-  const [tab, setTab] = useState<Tab>('About');
+  const [state, setState] = useState(() => initialState(property.id));
+  if (state.propertyId !== property.id) setState(initialState(property.id));
+  const scrollRef = useRef<ScrollView>(null);
+  const galleryRef = useRef<FlatList<string | null>>(null);
+  const positions = useRef({ tabs: 0 });
+  const scrollFrame = useRef<number | null>(null);
+  useEffect(() => () => { if (scrollFrame.current !== null) cancelAnimationFrame(scrollFrame.current); }, [property.id]);
+  const galleryImages = useMemo(() => getPropertyImages(property), [property]);
+  const currentRooms = useMemo(() => getCurrentRooms(property), [property]);
+  const groups = useMemo(() => groupRoomOfferings(currentRooms), [currentRooms]);
   const favorite = isFavorite(property.id);
-  const galleryImages = property.images.length ? property.images : [null];
+  const imageIndex = Math.min(state.image, galleryImages.length - 1);
+  const rating = getRatingMetadata(property);
+  const address = getPropertyAddress(property);
+  const startingPrice = getStartingRoomPrice(property);
+  const selectedRoom = currentRooms.find((room) => room.id === state.roomId && room.available > 0);
   const propertyConversation = getConversationForProperty(conversations, property.id);
+  const reviews = getPropertyReviewRecords(property.id);
+  const galleryHeight = Math.max(260, insets.top + 112);
+  const updateTab = (tab: Tab) => {
+    setState((current) => ({ ...current, tab }));
+    scrollRef.current?.scrollTo({ y: positions.current.tabs, animated: false });
+  };
+  const showRooms = () => {
+    setState((current) => ({ ...current, tab: 'Rooms' }));
+    if (scrollFrame.current !== null) cancelAnimationFrame(scrollFrame.current);
+    scrollFrame.current = requestAnimationFrame(() => {
+      scrollFrame.current = null;
+      scrollRef.current?.scrollTo({ y: positions.current.tabs, animated: false });
+    });
+  };
+  const applyRoom = (room: Room) => {
+    if (!currentRooms.some((item) => item.id === room.id && item.available > 0)) return;
+    setState((current) => ({ ...current, roomId: room.id }));
+    navigation.navigate('Apply', { property, selectedRoomId: room.id });
+  };
+  const goToImage = (index: number) => {
+    const next = getGalleryIndex(index * contentWidth, contentWidth, galleryImages.length);
+    setState((current) => ({ ...current, image: next }));
+    galleryRef.current?.scrollToOffset({ offset: next * contentWidth, animated: false });
+  };
   const openConversation = () => {
-    if (propertyConversation) {
-      navigation.navigate('Chat', { convId: propertyConversation.id });
-      return;
-    }
-    Alert.alert('Conversation unavailable', 'No conversation is linked to this property. External messaging is not connected.');
+    if (propertyConversation) navigation.navigate('Chat', { convId: propertyConversation.id });
+    else Alert.alert('Conversation unavailable', 'No conversation is linked to this property. External messaging is not connected.');
   };
 
-  return (
-    <View style={styles.container}>
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: 100 + insets.bottom + Math.min(fontScale, 2) * 16 }}
-      >
-        {/* Image gallery */}
-        <View style={styles.gallery}>
-          <FlatList
-            horizontal
-            pagingEnabled
-            data={galleryImages}
-            keyExtractor={(_, i) => String(i)}
-            showsHorizontalScrollIndicator={false}
-            onMomentumScrollEnd={(e) =>
-              setImgIdx(
-                Math.round(e.nativeEvent.contentOffset.x / width)
-              )
-            }
-            renderItem={({ item, index }) => (
-              <RemoteImage
-                source={item ? { uri: item } : null}
-                style={{ width, height: 260 }}
-                accessibilityLabel={`${property.name} gallery image ${index + 1} of ${galleryImages.length}`}
-                fallbackLabel={`${property.name} image unavailable`}
-              />
-            )}
-          />
-
-          <View
-            style={[
-              styles.galleryTopBar,
-              { paddingTop: insets.top + 8 },
-            ]}
-          >
-            <IconButton icon="arrow-back" label="Go back" onPress={() => navigation.goBack()} backgroundColor="rgba(255,255,255,0.92)" />
-            <IconButton
-              icon={favorite ? 'heart' : 'heart-outline'}
-              label={favorite ? `Remove ${property.name} from favorites` : `Add ${property.name} to favorites`}
-              selected={favorite}
-              color={Colors.slate900}
-              selectedColor={Colors.white}
-              backgroundColor="rgba(255,255,255,0.92)"
-              selectedBackgroundColor={Colors.red500}
-              onPress={() => toggleFavorite(property.id)}
-            />
-          </View>
-
-          {/* Image dots */}
-          <View style={styles.dots}>
-            {galleryImages.map((_, i) => (
-              <View
-                key={i}
-                style={[
-                  styles.dot,
-                  i === imgIdx && styles.dotActive,
-                ]}
-              />
-            ))}
-          </View>
+  return <View style={[styles.container, { paddingTop: insets.top, paddingLeft: insets.left, paddingRight: insets.right }]}>
+    <StatusBar style="dark" />
+    <ScrollView key={property.id} ref={scrollRef} style={styles.flex} showsVerticalScrollIndicator={false} contentContainerStyle={styles.page}>
+      <View style={[styles.gallery, { height: galleryHeight }]}>
+        <FlatList key={property.id} ref={galleryRef} horizontal pagingEnabled data={galleryImages} showsHorizontalScrollIndicator={false}
+          keyExtractor={(item, index) => `${property.id}-${item ?? 'fallback'}-${index}`}
+          getItemLayout={(_, index) => ({ length: contentWidth, offset: contentWidth * index, index })}
+          onLayout={() => galleryRef.current?.scrollToOffset({ offset: imageIndex * contentWidth, animated: false })}
+          onMomentumScrollEnd={({ nativeEvent }) => setState((current) => ({ ...current, image: getGalleryIndex(nativeEvent.contentOffset.x, contentWidth, galleryImages.length) }))}
+          renderItem={({ item, index }) => <RemoteImage key={`${property.id}-${index}-${item}`} source={item ? { uri: item } : null} style={{ width: contentWidth, height: galleryHeight }} contentFit="cover" accessibilityLabel={`${property.name} gallery image ${index + 1} of ${galleryImages.length}`} fallbackLabel={`${property.name} image unavailable`} />} />
+        <View style={[styles.galleryTopBar, { paddingTop: Spacing.sm }]}>
+          <IconButton icon="arrow-back" label="Go back" onPress={() => navigation.goBack()} backgroundColor="rgba(255,255,255,0.92)" />
+          <IconButton icon={favorite ? 'heart' : 'heart-outline'} label={favorite ? `Remove ${property.name} from favorites` : `Add ${property.name} to favorites`} selected={favorite} color={Colors.slate900} selectedColor={Colors.white} backgroundColor="rgba(255,255,255,0.92)" selectedBackgroundColor={Colors.red500} onPress={() => toggleFavorite(property.id)} />
         </View>
-
-        {/* Property info */}
-        <View style={styles.infoSection}>
-          <View style={styles.badgeRow}>
-            {property.verified && <VerifiedBadge />}
-            <Badge label={property.type} variant="gray" />
-          </View>
-
-          <Text style={styles.name}>{property.name}</Text>
-
-          <Text style={styles.address}>
-            {property.address} · {property.distance} km from campus
-          </Text>
-
-          <View style={styles.ratingRow}>
-            <StarRating rating={property.rating} />
-            <Text style={styles.reviewCount}>
-              ({property.reviews} reviews)
-            </Text>
-            <Text style={styles.dot2}>·</Text>
-            <Badge
-              label={`${property.available} available`}
-              variant="green"
-            />
-          </View>
-
-          <Text style={styles.price}>
-            R{property.price.toLocaleString()}
-            <Text style={styles.priceSub}>/month</Text>
-          </Text>
-        </View>
-
-        <Divider />
-
-        {/* Tabs */}
-        <View style={styles.tabBar}>
-          {TABS.map((t) => (
-            <TouchableOpacity
-              key={t}
-              onPress={() => setTab(t)}
-              style={styles.tabItem}
-              accessibilityRole="tab"
-              accessibilityState={{ selected: tab === t }}
-            >
-              <Text
-                style={[
-                  styles.tabText,
-                  tab === t && styles.tabTextActive,
-                ]}
-              >
-                {t}
-              </Text>
-
-              {tab === t && (
-                <View style={styles.tabIndicator} />
-              )}
-            </TouchableOpacity>
-          ))}
-        </View>
-
-        <View style={styles.tabContent}>
-          {/* About */}
-          {tab === 'About' && (
-            <View style={{ gap: 20 }}>
-              <View>
-                <Text style={styles.sectionTitle}>
-                  About this accommodation
-                </Text>
-
-                <Text style={styles.desc}>
-                  {property.description}
-                </Text>
-              </View>
-
-              <View>
-                <Text style={styles.sectionTitle}>
-                  Amenities
-                </Text>
-
-                <View style={styles.amenitiesGrid}>
-                  {property.amenities.map((a) => (
-                    <View key={a} style={styles.amenityItem}>
-                      <Text style={styles.amenityIcon}>✓</Text>
-                      <Text style={styles.amenityText}>
-                        {a}
-                      </Text>
-                    </View>
-                  ))}
-                </View>
-              </View>
-
-              <View>
-                <Text style={styles.sectionTitle}>
-                  Location
-                </Text>
-
-                <View style={styles.mapPlaceholder}>
-                  <RemoteImage
-                    source={{
-                      uri: 'https://images.unsplash.com/photo-1524661135-423995f22d0b?w=600&h=200&fit=crop&auto=format',
-                    }}
-                    style={StyleSheet.absoluteFill}
-                    decorative
-                    retryable={false}
-                  />
-
-                  <View style={styles.mapOverlay} />
-
-                  <View style={styles.mapBadge}>
-                    <Text style={styles.mapBadgeText}>
-                      {property.distance} km from university
-                    </Text>
-                  </View>
-                </View>
-              </View>
-
-              <View>
-                <Text style={styles.sectionTitle}>
-                  House Rules
-                </Text>
-
-                {property.rules.map((r) => (
-                  <View key={r} style={styles.ruleItem}>
-                    <View style={styles.ruleDot} />
-
-                    <Text style={styles.ruleText}>
-                      {r}
-                    </Text>
-                  </View>
-                ))}
-              </View>
-
-              <View>
-                <Text style={styles.sectionTitle}>
-                  Property Manager
-                </Text>
-
-                <View style={[styles.managerCard, width < 360 && styles.managerCardCompact]}>
-                  <View style={styles.managerAvatar}>
-                    <Text style={styles.managerAvatarText}>
-                      {property.manager.name
-                        .split(' ')
-                        .map((n: string) => n[0])
-                        .join('')}
-                    </Text>
-                  </View>
-
-                  <View style={styles.managerInfo}>
-                    <Text style={styles.managerName}>
-                      {property.manager.name}
-                    </Text>
-
-                    <View style={styles.managerMeta}>
-                      {property.manager.verified && (
-                        <Badge
-                          label="Verified"
-                          variant="blue"
-                        />
-                      )}
-
-                      <Text style={styles.managerResponse}>
-                        Responds {property.manager.responseTime}
-                      </Text>
-                    </View>
-                  </View>
-
-                  <Btn
-                    variant="secondary"
-                    accessibilityHint={propertyConversation ? `Opens your conversation about ${property.name}` : 'Explains that no conversation is linked to this property'}
-                    onPress={openConversation}
-                    style={[styles.msgBtn, width < 360 && styles.msgBtnCompact]}
-                  >
-                    {propertyConversation ? 'Message' : 'Message unavailable'}
-                  </Btn>
-                </View>
-              </View>
-            </View>
-          )}
-
-          {/* Rooms */}
-          {tab === 'Rooms' && (
-            <View style={{ gap: 12 }}>
-              {property.rooms.map((r) => (
-                <View key={r.id} style={styles.roomCard}>
-                  <View style={styles.roomTop}>
-                    <View style={styles.roomCopy}>
-                      <Text style={styles.roomType}>
-                        {r.type} Room
-                      </Text>
-
-                      <Text style={styles.roomMeta}>
-                        Capacity: {r.capacity} · {r.bathroom} ·{' '}
-                        {r.furnished
-                          ? 'Furnished'
-                          : 'Unfurnished'}
-                      </Text>
-                    </View>
-
-                    <Badge
-                      label={
-                        r.available > 0
-                          ? `${r.available} left`
-                          : 'Full'
-                      }
-                      variant={
-                        r.available > 0
-                          ? 'green'
-                          : 'red'
-                      }
-                    />
-                  </View>
-
-                  <View style={styles.roomFooter}>
-                    <Text style={styles.roomPrice}>
-                      R{r.price.toLocaleString()}
-                      <Text style={styles.roomPriceSub}>
-                        /mo
-                      </Text>
-                    </Text>
-
-                    <Btn
-                      onPress={() =>
-                        navigation.navigate('Apply', {
-                          property,
-                          selectedRoomId: r.id,
-                        })
-                      }
-                      disabled={r.available === 0}
-                      style={styles.applyBtn}
-                    >
-                      Apply Now
-                    </Btn>
-                  </View>
-                </View>
-              ))}
-            </View>
-          )}
-
-          {/* Reviews */}
-          {tab === 'Reviews' && (
-            <View style={{ gap: 16 }}>
-              <View style={styles.ratingOverview}>
-                <View style={styles.ratingBig}>
-                  <Text style={styles.ratingNumber}>
-                    {property.rating}
-                  </Text>
-
-                  <Text style={styles.ratingStars}>
-                    ★★★★★
-                  </Text>
-
-                  <Text style={styles.ratingCount}>
-                    {property.reviews} reviews
-                  </Text>
-                </View>
-
-                <View style={styles.ratingBars}>
-                  {[5, 4, 3, 2, 1].map((s) => (
-                    <View
-                      key={s}
-                      style={styles.ratingBar}
-                    >
-                      <Text style={styles.ratingBarLabel}>
-                        {s}
-                      </Text>
-
-                      <View style={styles.ratingBarTrack}>
-                        <View
-                          style={[
-                            styles.ratingBarFill,
-                            {
-                              width: `${
-                                s === 5
-                                  ? 65
-                                  : s === 4
-                                  ? 25
-                                  : s === 3
-                                  ? 7
-                                  : 3
-                              }%`,
-                            },
-                          ]}
-                        />
-                      </View>
-                    </View>
-                  ))}
-                </View>
-              </View>
-
-              {[
-                {
-                  name: 'Luvuyo M.',
-                  time: '2 weeks ago',
-                  rating: 5,
-                  text: 'Clean, safe, and very close to campus. The Wi-Fi is fast and staff are responsive.',
-                },
-                {
-                  name: 'Farai N.',
-                  time: '1 month ago',
-                  rating: 5,
-                  text: "I've been here since Jan and it's been great. Study room is always available.",
-                },
-                {
-                  name: 'Busisiwe K.',
-                  time: '2 months ago',
-                  rating: 4,
-                  text: 'Good value for money. Water pressure could be better but overall a solid place.',
-                },
-              ].map((r) => (
-                <View
-                  key={r.name}
-                  style={styles.reviewItem}
-                >
-                  <View style={styles.reviewHeader}>
-                    <View style={styles.reviewAvatar}>
-                      <Text style={styles.reviewAvatarText}>
-                        {r.name
-                          .split(' ')
-                          .map((n) => n[0])
-                          .join('')}
-                      </Text>
-                    </View>
-
-                    <View style={styles.reviewMeta}>
-                      <Text style={styles.reviewName}>
-                        {r.name}
-                      </Text>
-
-                      <Text style={styles.reviewTime}>
-                        {r.time}
-                      </Text>
-                    </View>
-
-                    <StarRating rating={r.rating} />
-                  </View>
-
-                  <Text style={styles.reviewText}>
-                    {r.text}
-                  </Text>
-
-                  <Divider style={{ marginTop: 16 }} />
-                </View>
-              ))}
-            </View>
-          )}
-        </View>
-      </ScrollView>
-
-      {/* Sticky CTA */}
-      <View
-        style={[
-          styles.ctaBar,
-          { paddingBottom: insets.bottom + 12 },
-        ]}
-      >
-        <Btn
-          variant="secondary"
-          accessibilityLabel={favorite ? `Remove ${property.name} from favorites` : `Add ${property.name} to favorites`}
-          selected={favorite}
-          onPress={() => toggleFavorite(property.id)}
-          style={styles.saveBtn}
-        >
-          <Ionicons name={favorite ? 'heart' : 'heart-outline'} size={22} color={favorite ? Colors.red600 : Colors.slate900} />
-          <Text style={styles.saveText}>{favorite ? 'Saved' : 'Save'}</Text>
-        </Btn>
-
-        <Btn
-          onPress={() =>
-            navigation.navigate('Apply', { property })
-          }
-          style={styles.applyNowBtn}
-        >
-          Apply Now →
-        </Btn>
+        <View style={styles.dots}>{galleryImages.map((_, index) => <TouchableOpacity key={index} accessibilityRole="button" accessibilityLabel={`View ${property.name} image ${index + 1} of ${galleryImages.length}`} accessibilityState={{ selected: imageIndex === index }} activeOpacity={0.7} onPress={() => goToImage(index)} style={styles.dotTarget}><View style={[styles.dot, imageIndex === index && styles.dotActive]} /></TouchableOpacity>)}</View>
       </View>
+      <View style={styles.infoSection}>
+        <View style={styles.badgeRow}><Badge label={property.type} variant="gray" /></View>
+        <Text accessibilityRole="header" style={styles.name}>{property.name}</Text>
+        <Text style={styles.address}>{address}{Number.isFinite(property.distance) && property.distance >= 0 ? ` · ${property.distance} km from campus` : ''}</Text>
+        <View style={styles.ratingRow}>{rating ? <><StarRating rating={rating.rating} /><Text style={styles.reviewCount}>({rating.count} listed reviews)</Text></> : <Text style={styles.reviewCount}>No rating supplied</Text>}<Badge label={`${getListedRoomCount(currentRooms)} rooms listed`} variant="blue" /></View>
+        <Text style={styles.price}>{startingPrice !== undefined ? <><Text style={styles.priceSub}>Rooms from </Text>{`R${startingPrice.toLocaleString('en-ZA')}`}<Text style={styles.priceSub}>/month</Text></> : 'Room prices unavailable'}</Text>
+      </View>
+      <Divider />
+      <View onLayout={({ nativeEvent }) => { positions.current.tabs = nativeEvent.layout.y; }}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={[styles.tabBar, { minWidth: contentWidth }]}>
+          {TABS.map((tab) => <TouchableOpacity key={tab} onPress={() => updateTab(tab)} style={[styles.tabItem, scrollableTabs && styles.scrollableTabItem]} accessibilityRole="tab" accessibilityLabel={tab} accessibilityState={{ selected: state.tab === tab }} activeOpacity={0.7}>
+            <Text style={[styles.tabText, state.tab === tab && styles.tabTextActive]}>{tab}</Text>
+            {state.tab === tab ? <View style={styles.tabIndicator} /> : null}
+          </TouchableOpacity>)}
+        </ScrollView>
+      </View>
+      <View style={styles.tabContent}>
+        {state.tab === 'About' ? <View style={styles.sections}>
+          <View><Text accessibilityRole="header" style={styles.sectionTitle}>About this accommodation</Text><Text style={styles.desc}>{property.description}</Text></View>
+          <View><Text accessibilityRole="header" style={styles.sectionTitle}>Amenities</Text><View style={styles.amenitiesGrid}>{property.amenities.map((amenity) => <View key={amenity} style={[styles.amenityItem, expanded && styles.amenitySingle]}><Text importantForAccessibility="no" style={styles.amenityIcon}>✓</Text><Text style={styles.amenityText}>{amenity}</Text></View>)}</View></View>
+          <View><Text accessibilityRole="header" style={styles.sectionTitle}>Location</Text><View style={styles.mapPlaceholder}><Text style={styles.locationAddress}>{address}</Text>{Number.isFinite(property.distance) && property.distance >= 0 ? <View style={styles.mapBadge}><Text style={styles.mapBadgeText}>{property.distance} km from university</Text></View> : null}</View></View>
+          <View><Text accessibilityRole="header" style={styles.sectionTitle}>House Rules</Text>{property.rules.map((rule) => <View key={rule} style={styles.ruleItem}><View style={styles.ruleDot} /><Text style={styles.ruleText}>{rule}</Text></View>)}</View>
+          <View><Text accessibilityRole="header" style={styles.sectionTitle}>Property contact</Text><View style={[styles.managerCard, expanded && styles.managerCardCompact]}><View importantForAccessibility="no-hide-descendants" style={styles.managerAvatar}><Text maxFontSizeMultiplier={1.3} style={styles.managerAvatarText}>{property.manager.name.split(' ').map((name) => name[0]).join('')}</Text></View><View style={styles.managerInfo}><Text style={styles.managerName}>{property.manager.name}</Text><Text style={styles.managerResponse}>Listed contact information</Text></View><Btn variant="secondary" accessibilityHint={propertyConversation ? `Opens your illustrative conversation about ${property.name}` : 'Explains that no conversation is linked to this property'} onPress={openConversation} style={[styles.msgBtn, expanded && styles.msgBtnCompact]}>{propertyConversation ? 'Message' : 'Message unavailable'}</Btn></View></View>
+        </View> : null}
+        {state.tab === 'Rooms' ? <View style={styles.sections}><Text style={styles.contextNote}>Listed room information · Counts are not live vacancies</Text>{groups.map((group) => <RoomCategoryCard key={group.type} type={group.type} rooms={group.rooms} property={property} selectedRoomId={state.roomId} onSelect={(room) => setState((current) => ({ ...current, roomId: room.id }))} onApply={applyRoom} expanded={expanded} />)}</View> : null}
+        {state.tab === 'Reviews' ? <View style={styles.sections}>
+          <View style={[styles.ratingOverview, expanded && styles.ratingOverviewCompact]}>
+            <View accessible accessibilityLabel={rating ? `Illustrative listing rating ${rating.rating} out of 5, ${rating.count} listed reviews. Not independently verified.` : 'No rating supplied'} style={styles.ratingBig}><Text style={styles.ratingNumber}>{rating?.rating ?? '—'}</Text>{rating ? <StarRating rating={rating.rating} /> : null}<Text style={styles.ratingCount}>{rating ? `${rating.count} listed reviews` : 'No rating supplied'}</Text></View>
+            <View style={[styles.ratingBars, expanded && styles.ratingBarsCompact]}>{[5,4,3,2,1].map((stars) => <View key={stars} accessible accessibilityLabel={`${stars}-star breakdown not provided`} style={styles.ratingBar}><Text style={styles.ratingBarLabel}>{stars}</Text><View style={styles.ratingBarTrack} /><Text style={styles.ratingCount}>—</Text></View>)}<Text style={styles.contextNote}>Rating breakdown not provided</Text></View>
+          </View>
+          <Text style={styles.contextNote}>Illustrative listing metadata · Not independently verified</Text>
+          {!reviews.length ? <EmptyState title="No property-linked reviews" description="No review records are associated with this property." /> : reviews.map((review) => <ReviewCard key={review.id} review={review} />)}
+          <Btn variant="secondary" onPress={() => setState((current) => ({ ...current, examples: !current.examples }))}>{state.examples ? 'Hide review examples' : 'View illustrative review examples'}</Btn>
+          {state.examples ? <View style={styles.sections}><Text accessibilityRole="header" style={styles.sectionTitle}>Review examples</Text><Text style={styles.contextNote}>Unassociated examples, not reviews of this property. Review dates are not known.</Text>{illustrativeReviewExamples.map((review) => <ReviewCard key={review.id} review={review} />)}</View> : null}
+        </View> : null}
+      </View>
+    </ScrollView>
+    <View style={[styles.ctaBar, expanded && styles.ctaBarCompact, { paddingBottom: Math.max(insets.bottom, Spacing.md) }]}>
+      <Btn variant="secondary" accessibilityLabel={favorite ? `Remove ${property.name} from favorites` : `Add ${property.name} to favorites`} selected={favorite} onPress={() => toggleFavorite(property.id)} style={[styles.saveBtn, expanded && styles.fullButton]}><Ionicons name={favorite ? 'heart' : 'heart-outline'} size={22} color={favorite ? Colors.red600 : Colors.slate900} /><Text style={styles.saveText}>{favorite ? 'Saved' : 'Save'}</Text></Btn>
+      <Btn accessibilityLabel={selectedRoom ? `Continue application for ${getRoomLabel(selectedRoom)}, offering ${selectedRoom.id}` : 'Choose a room to apply'} accessibilityHint={selectedRoom ? 'Opens Apply with your exact selected room' : 'Opens Rooms so you can choose an offering and price'} onPress={() => selectedRoom ? applyRoom(selectedRoom) : showRooms()} style={[styles.applyNowBtn, expanded && styles.fullButton]}>Apply Now →</Btn>
     </View>
-  );
+  </View>;
+}
+
+export function RoomCategoryCard({ type, rooms, property, selectedRoomId, onSelect, onApply, expanded }: { type: RoomType; rooms: Room[]; property: Property; selectedRoomId: string | null; onSelect: (room: Room) => void; onApply: (room: Room) => void; expanded: boolean }) {
+  return <View style={styles.roomCard}>
+    <View style={[styles.roomTop, expanded && styles.roomTopCompact]}><Text accessibilityRole="header" style={styles.roomType}>{type} Room</Text><Badge label={`${getListedRoomCount(rooms)} rooms listed`} variant="blue" /></View>
+    {!rooms.length ? <Text style={styles.roomMeta}>No {type.toLowerCase()} room offerings listed.</Text> : rooms.map((room, index) => <View key={room.id} style={styles.offering}>
+      {index ? <Divider /> : null}
+      <TouchableOpacity accessibilityRole="radio" accessibilityLabel={`Select ${getRoomLabel(room)}, offering ${room.id}, capacity ${room.capacity}, ${room.bathroom}, ${room.furnished ? 'furnished' : 'unfurnished'}, ${formatMonthlyRent(room.price)}, ${room.available} rooms listed`} accessibilityState={{ checked: selectedRoomId === room.id, disabled: room.available <= 0 }} disabled={room.available <= 0} activeOpacity={0.7} onPress={() => onSelect(room)} style={styles.offeringSelect}>
+        <View style={styles.roomCopy}><Text style={styles.offeringTitle}>{room.variant ? `${room.variant} layout` : `${type} occupancy`}{selectedRoomId === room.id ? ' · Selected' : ''}</Text><Text style={styles.roomMeta}>Capacity: {room.capacity} · {room.bathroom} · {room.furnished ? 'Furnished' : 'Unfurnished'}</Text></View><Ionicons name={selectedRoomId === room.id ? 'radio-button-on' : 'radio-button-off'} size={22} color={Colors.blue} importantForAccessibility="no" />
+      </TouchableOpacity>
+      <Text style={styles.roomMeta}>{room.available} rooms listed</Text>
+      <View style={styles.roomFooter}><Text style={styles.roomPrice}>{formatMonthlyRent(room.price)}</Text><Btn accessibilityLabel={`Apply for ${getRoomLabel(room)} at ${property.name}, offering ${room.id}`} onPress={() => onApply(room)} disabled={room.available <= 0} style={styles.applyBtn}>Apply Now</Btn></View>
+    </View>)}
+  </View>;
+}
+
+export function ReviewCard({ review }: { review: { id: string; name: string; rating: number; text: string } }) {
+  return <View style={styles.reviewItem}><View style={styles.reviewHeader}><View importantForAccessibility="no-hide-descendants" style={styles.reviewAvatar}><Text maxFontSizeMultiplier={1.3} style={styles.reviewAvatarText}>{review.name.split(' ').map((name) => name[0]).join('')}</Text></View><View style={styles.reviewMeta}><Text style={styles.reviewName}>{review.name}</Text><StarRating rating={review.rating} /></View></View><Text style={styles.reviewText}>{review.text}</Text><Divider style={{ marginTop: Spacing.lg }} /></View>;
 }
 
 const styles = StyleSheet.create({
+  flex: { flex: 1 },
+  page: { paddingBottom: Spacing.xxl },
+  sections: { gap: Spacing.xl },
+  contextNote: { fontFamily: Fonts.body, fontSize: 12, lineHeight: 18, color: TextColors.muted },
+  dotTarget: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
+  amenitySingle: { flexBasis: '100%' },
+  locationAddress: { fontFamily: Fonts.body, fontSize: 13, lineHeight: 20, color: TextColors.secondary, textAlign: 'center' },
+  roomTopCompact: { flexDirection: 'column', alignItems: 'flex-start' },
+  offering: { gap: Spacing.sm },
+  offeringSelect: { minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, paddingVertical: Spacing.xs },
+  offeringTitle: { fontFamily: Fonts.bodySemi, color: TextColors.primary, fontSize: 14, lineHeight: 20 },
+  ctaBarCompact: { flexDirection: 'column' },
+  fullButton: { flex: 0, width: '100%' },
+  ratingOverviewCompact: { flexDirection: 'column' },
+  ratingBarsCompact: { flex: 0, width: '100%' },
+  scrollableTabItem: { flex: 0, flexShrink: 0, paddingHorizontal: Spacing.lg },
   container: {
     flex: 1,
     backgroundColor: Colors.white,
@@ -506,12 +194,12 @@ const styles = StyleSheet.create({
 
   dots: {
     position: 'absolute',
-    bottom: 10,
+    bottom: 0,
     left: 0,
     right: 0,
     flexDirection: 'row',
     justifyContent: 'center',
-    gap: 4,
+    gap: 0,
   },
 
   dot: {
@@ -544,14 +232,17 @@ const styles = StyleSheet.create({
 
   name: {
     fontSize: 24,
+    lineHeight: 31,
+    letterSpacing: -0.4,
     fontFamily: Fonts.heading,
     color: Colors.slate900,
   },
 
   address: {
     fontSize: 13,
+    lineHeight: 20,
     fontFamily: Fonts.body,
-    color: Colors.slate500,
+    color: TextColors.muted,
   },
 
   ratingRow: {
@@ -568,7 +259,8 @@ const styles = StyleSheet.create({
   },
 
   price: {
-    fontSize: 30,
+    fontSize: 24,
+    lineHeight: 32,
     fontFamily: Fonts.heading,
     color: Colors.slate900,
     marginTop: 4,
@@ -588,12 +280,17 @@ const styles = StyleSheet.create({
 
   tabItem: {
     flex: 1,
+    minHeight: 48,
+    minWidth: 0,
+    paddingHorizontal: 4,
     alignItems: 'center',
     paddingVertical: 14,
   },
 
   tabText: {
     fontSize: 14,
+    lineHeight: 20,
+    textAlign: 'center',
     fontFamily: Fonts.bodyMed,
     color: TextColors.muted,
   },
@@ -638,11 +335,11 @@ const styles = StyleSheet.create({
 
   amenityItem: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     gap: 6,
     flexGrow: 1,
     flexBasis: '45%',
-    minWidth: 140,
+    minWidth: 0,
   },
 
   amenityIcon: {
@@ -651,13 +348,18 @@ const styles = StyleSheet.create({
   },
 
   amenityText: {
+    flex: 1,
+    lineHeight: 19,
     fontSize: 13,
     fontFamily: Fonts.body,
     color: Colors.slate700,
   },
 
   mapPlaceholder: {
-    height: 120,
+    minHeight: 120,
+    padding: Spacing.lg,
+    gap: Spacing.md,
+    backgroundColor: Colors.slate50,
     borderRadius: Radius.lg,
     overflow: 'hidden',
     alignItems: 'center',
@@ -737,6 +439,7 @@ const styles = StyleSheet.create({
 
   managerInfo: {
     flex: 1,
+    minWidth: 0,
   },
 
   managerName: {
@@ -786,6 +489,7 @@ const styles = StyleSheet.create({
 
   roomType: {
     fontSize: 15,
+    lineHeight: 22,
     fontFamily: Fonts.heading,
     color: Colors.slate900,
   },
@@ -793,7 +497,7 @@ const styles = StyleSheet.create({
   roomMeta: {
     fontSize: 12,
     fontFamily: Fonts.body,
-    color: Colors.slate500,
+    color: TextColors.muted,
     marginTop: 2,
     lineHeight: 18,
   },
@@ -868,7 +572,7 @@ const styles = StyleSheet.create({
   ratingBarLabel: {
     fontSize: 11,
     color: Colors.slate500,
-    width: 10,
+    minWidth: 14,
   },
 
   ratingBarTrack: {
@@ -912,6 +616,8 @@ const styles = StyleSheet.create({
 
   reviewMeta: {
     flex: 1,
+    minWidth: 0,
+    gap: Spacing.xs,
   },
 
   reviewName: {
@@ -934,10 +640,6 @@ const styles = StyleSheet.create({
   },
 
   ctaBar: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
     flexDirection: 'row',
     gap: 12,
     paddingHorizontal: 20,
