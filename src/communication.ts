@@ -1,5 +1,30 @@
 import type { AppNotification, Conversation, Message, Property } from './data';
 
+export const MAX_MESSAGE_LENGTH = 1000;
+
+export function getConversationUnreadCount(conversation: Conversation) {
+  return Number.isFinite(conversation.unread) ? Math.max(0, Math.floor(conversation.unread)) : 0;
+}
+
+export function getMessageTimeLabel(message: Message) {
+  if (message.source === 'local') return message.time.trim() || 'Time unavailable';
+  // Seed data has clock labels but no dates. Never describe it as recent activity.
+  return /^(?:[01]?\d|2[0-3]):[0-5]\d$/.test(message.time) ? message.time : '';
+}
+
+export function hasIllustrativeMessages(conversation: Conversation) {
+  return conversation.messages.some((message) => message.source !== 'local');
+}
+
+export function getConversationPreview(conversation: Conversation) {
+  const latest = conversation.messages.at(-1);
+  return {
+    text: latest?.text.trim() || 'No messages yet',
+    time: latest ? getMessageTimeLabel(latest) : '',
+    isExample: latest ? latest.source !== 'local' : false,
+  };
+}
+
 export type CommunicationState = {
   conversations: Conversation[];
   notifications: AppNotification[];
@@ -20,6 +45,7 @@ export function createCommunicationState(
   return {
     conversations: conversations.map((conversation) => ({
       ...conversation,
+      unread: getConversationUnreadCount(conversation),
       messages: conversation.messages.map((message) => ({ ...message })),
     })),
     notifications: notifications.map((notification) => ({ ...notification })),
@@ -30,13 +56,14 @@ export function createCommunicationState(
 export function sendLocalMessage(state: CommunicationState, conversationId: string, value: string, time: string) {
   const text = value.trim();
   const conversation = state.conversations.find((item) => item.id === conversationId);
-  if (!text || !conversation) return state;
+  if (!text || text.length > MAX_MESSAGE_LENGTH || !conversation) return state;
   const messageSequence = state.messageSequence + 1;
   const message: Message = {
     id: `local-${conversationId}-${messageSequence}`,
     sender: 'student',
     text,
     time,
+    source: 'local',
   };
   const updated = { ...conversation, messages: [...conversation.messages, message], lastMessage: text, time, unread: 0 };
   return {
@@ -78,7 +105,7 @@ export function communicationReducer(state: CommunicationState, action: Communic
 }
 
 export function getUnreadMessageCount(state: CommunicationState) {
-  return state.conversations.reduce((count, conversation) => count + conversation.unread, 0);
+  return state.conversations.reduce((count, conversation) => count + getConversationUnreadCount(conversation), 0);
 }
 
 export function getUnreadNotificationCount(state: CommunicationState) {

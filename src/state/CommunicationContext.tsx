@@ -4,6 +4,7 @@ import {
   createCommunicationState,
   getUnreadMessageCount,
   getUnreadNotificationCount,
+  MAX_MESSAGE_LENGTH,
 } from '../communication';
 import { conversations as initialConversations, notifications as initialNotifications } from '../data';
 
@@ -25,7 +26,7 @@ export function CommunicationProvider({ children }: { children: React.ReactNode 
     createCommunicationState(initialConversations, initialNotifications),
   );
   const sendMessage = useCallback((conversationId: string, text: string) => {
-    if (!text.trim() || !state.conversations.some((item) => item.id === conversationId)) return false;
+    if (!text.trim() || text.trim().length > MAX_MESSAGE_LENGTH || !state.conversations.some((item) => item.id === conversationId)) return false;
     const time = new Date().toLocaleTimeString('en-ZA', { hour: '2-digit', minute: '2-digit' });
     dispatch({ type: 'send', conversationId, text, time });
     return true;

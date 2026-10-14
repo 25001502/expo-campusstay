@@ -9,7 +9,9 @@ import { Colors, Fonts, Radius, Shadow, Spacing, TextColors } from '../theme';
 import { Badge, Btn, EmptyState, ScreenHeader } from '../components/UI';
 import { RemoteImage } from '../components/RemoteImage';
 import { getBestPropertyIds, getPropertyById } from '../discovery';
+import { useFavorites } from '../state/FavoritesContext';
 import type { Property } from '../data';
+import { getCurrentRooms } from '../rooms';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Compare'>;
 
@@ -22,22 +24,29 @@ type Attribute = {
   display: (property: Property) => string;
 };
 
+function validNumber(value: number | null | undefined, maximum = Infinity, integer = false) {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= maximum && (!integer || Number.isInteger(value))
+    ? value : undefined;
+}
+
 const ATTRIBUTES: Attribute[] = [
-  { label: 'Monthly Rent', direction: 'lower', numeric: (property) => property.price, display: (property) => `R${property.price.toLocaleString()}` },
-  { label: 'Distance', direction: 'lower', numeric: (property) => property.distance, display: (property) => `${property.distance} km` },
-  { label: 'Rating', direction: 'higher', numeric: (property) => property.rating, display: (property) => `${property.rating}★` },
-  { label: 'Available', direction: 'higher', numeric: (property) => property.available, display: (property) => `${property.available} rooms` },
+  { label: 'Monthly Rent', direction: 'lower', numeric: (property) => validNumber(property.price), display: (property) => `R${property.price.toLocaleString()}` },
+  { label: 'Distance', direction: 'lower', numeric: (property) => validNumber(property.distance), display: (property) => `${property.distance} km` },
+  { label: 'Rating', direction: 'higher', numeric: (property) => validNumber(property.rating, 5), display: (property) => `${property.rating}★` },
+  { label: 'Rooms listed', direction: 'higher', numeric: (property) => validNumber(property.available, Infinity, true), display: (property) => `${property.available} rooms` },
 ];
 
 export default function CompareScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
-  const uniqueIds = [...new Set(route.params.ids)];
-  const compared = uniqueIds.map(getPropertyById).filter((property): property is Property => !!property);
+  const { favoriteIds } = useFavorites();
+  const uniqueIds = [...new Set(Array.isArray(route.params?.ids) ? route.params.ids : [])];
+  const compared = uniqueIds.filter((id) => favoriteIds.includes(id))
+    .map(getPropertyById).filter((property): property is Property => !!property).slice(0, 3);
   const columnWidth = Math.min(190, Math.max(150, width * 0.48));
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
+    <View style={[styles.container, { paddingTop: insets.top, paddingLeft: insets.left, paddingRight: insets.right }]}>
       <StatusBar style="dark" />
       <ScreenHeader title="Compare Accommodation" onBack={() => navigation.goBack()} />
       {compared.length < 2 ? (
@@ -59,11 +68,11 @@ export default function CompareScreen({ navigation, route }: Props) {
               <View style={styles.row}>
                 <View style={styles.labelColumn} />
                 {compared.map((property) => {
-                  const availableRooms = property.rooms.filter((room) => room.available > 0);
+                  const availableRooms = getCurrentRooms(property).filter((room) => room.available > 0);
                   return (
                     <View key={property.id} style={[styles.propertyColumn, { width: columnWidth }]}>
                       <RemoteImage
-                        source={property.images[0] ? { uri: property.images[0] } : null}
+                        source={property.images?.[0] ? { uri: property.images[0] } : null}
                         style={styles.propertyImage}
                         accessibilityLabel={`${property.name} accommodation`}
                         fallbackLabel={`${property.name} image unavailable`}
@@ -103,11 +112,11 @@ export default function CompareScreen({ navigation, route }: Props) {
                 <View key={amenity} style={[styles.row, styles.attributeRow]}>
                   <View style={styles.labelColumn}><Text style={styles.attributeLabel}>{amenity}</Text></View>
                   {compared.map((property) => {
-                    const available = property.amenities.includes(amenity);
+                    const available = property.amenities?.includes(amenity);
                     return (
                       <View key={property.id} style={[styles.valueColumn, { width: columnWidth }, available && styles.amenityAvailable]}>
                         <Ionicons name={available ? 'checkmark-circle' : 'remove'} size={22} color={available ? '#166534' : Colors.slate500} />
-                        <Text style={styles.srValue}>{available ? 'Included' : 'Not included'}</Text>
+                        <Text style={styles.srValue}>{available === undefined ? 'Not provided' : available ? 'Included' : 'Not included'}</Text>
                       </View>
                     );
                   })}

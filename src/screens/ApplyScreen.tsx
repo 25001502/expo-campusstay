@@ -1,4 +1,5 @@
 import React, { useMemo, useRef, useState } from 'react';
+import { getCurrentRooms, getRoomLabel } from '../rooms';
 import {
   KeyboardAvoidingView,
   Platform,
@@ -51,7 +52,8 @@ export default function ApplyScreen({ navigation, route }: Props) {
   const [errors, setErrors] = useState<ApplicationErrors>({});
   const [submitting, setSubmitting] = useState(false);
   const invalidSuppliedRoom = !!selectedRoomId && draft.selectedRoomId === null;
-  const availableRooms = property.rooms.filter((room) => room.available > 0);
+  const currentRooms = getCurrentRooms(property);
+  const availableRooms = currentRooms.filter((room) => room.available > 0);
   const review = useMemo(() => buildApplicationReview(draft, property), [draft, property]);
   const step = draft.currentStep;
 
@@ -156,17 +158,17 @@ export default function ApplyScreen({ navigation, route }: Props) {
             <View style={styles.stepContent}>
               <Text accessibilityRole="header" style={styles.stepTitle}>Select a Room</Text>
               <Text style={styles.stepSub}>{property.name}</Text>
-              <Text style={styles.availabilityNote}>Room availability may not reflect live inventory.</Text>
+              <Text style={styles.availabilityNote}>Listed room information · Counts are not live vacancies</Text>
               {invalidSuppliedRoom ? <Text accessibilityRole="alert" style={styles.roomNotice}>The requested room is invalid or unavailable. Select an available room explicitly.</Text> : null}
               {!availableRooms.length ? <View style={styles.roomNoticeBox}><Text style={styles.roomNoticeText}>No rooms are currently listed as available.</Text></View> : null}
-              {property.rooms.map((room) => {
+              {currentRooms.map((room) => {
                 const selected = draft.selectedRoomId === room.id;
                 const disabled = room.available <= 0;
                 return (
                   <TouchableOpacity
                     key={room.id}
                     accessibilityRole="radio"
-                    accessibilityLabel={`${room.type} room, R${room.price.toLocaleString()} per month, ${disabled ? 'currently full' : `${room.available} available`}`}
+                    accessibilityLabel={`${getRoomLabel(room)}, offering ${room.id}, capacity ${room.capacity}, R${room.price.toLocaleString('en-ZA')} per month, ${room.available} rooms listed`}
                     accessibilityState={{ selected, disabled }}
                     activeOpacity={0.8}
                     disabled={disabled}
@@ -178,13 +180,13 @@ export default function ApplyScreen({ navigation, route }: Props) {
                   >
                     <View style={styles.optionTop}>
                       <View style={styles.optionCopy}>
-                        <Text style={styles.optionTitle}>{room.type} Room</Text>
-                        <Text style={styles.optionMeta}>{room.bathroom} · {room.furnished ? 'Furnished' : 'Unfurnished'}</Text>
+                        <Text style={styles.optionTitle}>{getRoomLabel(room)}</Text>
+                        <Text style={styles.optionMeta}>Capacity: {room.capacity} · {room.bathroom} · {room.furnished ? 'Furnished' : 'Unfurnished'}</Text>
                       </View>
                       <View style={[styles.radioCircle, selected && styles.radioCircleActive]}>{selected ? <View style={styles.radioDot} /> : null}</View>
                     </View>
                     <Text style={styles.optionPrice}>R{room.price.toLocaleString()}/month</Text>
-                    <Text style={[styles.availability, disabled && styles.unavailable]}>{disabled ? 'Currently full' : `${room.available} listed as available`}</Text>
+                    <Text style={[styles.availability, disabled && styles.unavailable]}>{room.available} rooms listed</Text>
                   </TouchableOpacity>
                 );
               })}

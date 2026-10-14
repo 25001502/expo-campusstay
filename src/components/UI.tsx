@@ -160,6 +160,7 @@ export function IconButton({
   onPress,
   hint,
   selected = false,
+  expanded,
   disabled = false,
   color = Colors.slate700,
   selectedColor = Colors.white,
@@ -174,6 +175,7 @@ export function IconButton({
   onPress?: () => void;
   hint?: string;
   selected?: boolean;
+  expanded?: boolean;
   disabled?: boolean;
   color?: string;
   selectedColor?: string;
@@ -191,7 +193,7 @@ export function IconButton({
       accessibilityRole="button"
       accessibilityLabel={label}
       accessibilityHint={hint}
-      accessibilityState={{ disabled, selected }}
+      accessibilityState={{ disabled, selected, ...(expanded === undefined ? {} : { expanded }) }}
       hitSlop={Spacing.xs}
       testID={testID}
       style={[
@@ -228,6 +230,10 @@ export function Input({
   autoComplete,
   textContentType,
   returnKeyType,
+  maxLength,
+  autoCapitalize,
+  onSubmitEditing,
+  submitBehavior,
   passwordVisibilityToggle = false,
   accessibilityLabel,
   onFocus,
@@ -249,6 +255,10 @@ export function Input({
   autoComplete?: TextInputProps['autoComplete'];
   textContentType?: TextInputProps['textContentType'];
   returnKeyType?: TextInputProps['returnKeyType'];
+  maxLength?: TextInputProps['maxLength'];
+  autoCapitalize?: TextInputProps['autoCapitalize'];
+  onSubmitEditing?: TextInputProps['onSubmitEditing'];
+  submitBehavior?: TextInputProps['submitBehavior'];
   passwordVisibilityToggle?: boolean;
   accessibilityLabel?: string;
   onFocus?: TextInputProps['onFocus'];
@@ -278,6 +288,10 @@ export function Input({
           autoComplete={autoComplete}
           textContentType={textContentType}
           returnKeyType={returnKeyType}
+          maxLength={maxLength}
+          autoCapitalize={autoCapitalize}
+          onSubmitEditing={onSubmitEditing}
+          submitBehavior={submitBehavior}
           editable={!disabled}
           placeholderTextColor={Colors.slate500}
           accessibilityLabel={accessibleLabel}

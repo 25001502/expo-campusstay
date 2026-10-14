@@ -3,7 +3,8 @@ import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { getSubmittedApplicationSummary } from '../application';
+import { formatApplicationDate, getSubmittedApplicationSummary } from '../application';
+import { formatMonthlyRent, getBookingTab } from '../bookings';
 import { Btn, ErrorState, ScreenHeader, StatusBadge } from '../components/UI';
 import { RemoteImage } from '../components/RemoteImage';
 import type { RootStackParamList } from '../navigation/types';
@@ -20,14 +21,6 @@ const localMilestones = [
   { label: 'Booking', state: 'pending' as const, sub: 'This application is not a booking' },
 ];
 
-const sampleMilestones = [
-  { label: 'Application record', state: 'done' as const, sub: 'Reference status only' },
-  { label: 'Documents', state: 'done' as const, sub: 'Reference status only' },
-  { label: 'Manager review', state: 'active' as const, sub: 'Provider updates are not connected' },
-  { label: 'Decision', state: 'pending' as const, sub: 'No live decision' },
-  { label: 'Booking confirmed', state: 'pending' as const, sub: 'Not confirmed by this status' },
-];
-
 export default function AppStatusScreen({ navigation, route }: Props) {
   const { property, applicationId, sampleReference, sampleRoom, sampleStatus } = route.params;
   const insets = useSafeAreaInsets();
@@ -36,6 +29,8 @@ export default function AppStatusScreen({ navigation, route }: Props) {
   const summary = application ? getSubmittedApplicationSummary(application, property) : undefined;
   const missingLocalApplication = !!applicationId && !summary;
   const missingReference = !applicationId && !sampleReference;
+  const bookingTab = getBookingTab(sampleStatus);
+  const returnToBookings = () => navigation.popTo('Main', { screen: 'Bookings', params: { section: applicationId ? 'Applications' : bookingTab } });
 
   if (missingLocalApplication || missingReference) {
     return (
@@ -47,7 +42,7 @@ export default function AppStatusScreen({ navigation, route }: Props) {
             title="Application unavailable"
             message={missingLocalApplication ? 'This session-only application may have expired after the app restarted. Start a new application from a property.' : 'This application record is missing its reference information.'}
             retryLabel="Go to Bookings"
-            onRetry={() => navigation.popTo('Main', { screen: 'Bookings' })}
+            onRetry={returnToBookings}
           />
         </View>
       </View>
@@ -55,65 +50,60 @@ export default function AppStatusScreen({ navigation, route }: Props) {
   }
 
   const isLocalApplication = !!summary;
-  const room = application?.selectedRoomId
-    ? property.rooms.find((item) => item.id === application.selectedRoomId)
-    : undefined;
-  const milestones = isLocalApplication ? localMilestones : sampleMilestones;
   const dateLabel = summary
-    ? new Date(summary.submittedAt).toLocaleString('en-ZA', { dateStyle: 'medium', timeStyle: 'short' })
+    ? formatApplicationDate(summary.submittedAt)
     : 'Date unavailable';
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <StatusBar style="dark" />
-      <ScreenHeader title="Application Status" onBack={() => navigation.goBack()} />
-      <ScrollView contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + Spacing.xxl }]}>
+      <ScreenHeader title={isLocalApplication ? 'Application Status' : 'Booking Record'} onBack={() => navigation.goBack()} />
+      <ScrollView contentContainerStyle={[styles.scroll, { paddingLeft: insets.left + Spacing.lg, paddingRight: insets.right + Spacing.lg, paddingBottom: insets.bottom + Spacing.xxl }]}>
         {isLocalApplication ? (
           <View accessibilityRole="alert" accessibilityLiveRegion="polite" style={styles.successBanner}>
             <Text style={styles.successTitle}>Application saved</Text>
             <Text style={styles.successText}>Saved in this session. No accommodation provider received it.</Text>
           </View>
         ) : (
-          <View style={styles.sampleBanner}><Text style={styles.sampleText}>This application status is reference information. Provider updates are not connected.</Text></View>
+          <View style={styles.sampleBanner}><Text style={styles.sampleText}>Illustrative booking record. This is not an actual stay or booking confirmation.</Text></View>
         )}
 
         <View style={styles.propertyCard}>
-          <RemoteImage source={property.images[0] ? { uri: property.images[0] } : null} style={styles.propertyImage} accessibilityLabel={`${property.name} accommodation`} fallbackLabel={`${property.name} image unavailable`} />
+          <RemoteImage source={property.images?.[0] ? { uri: property.images[0] } : null} style={styles.propertyImage} accessibilityLabel={`${property.name} accommodation`} fallbackLabel={`${property.name} image unavailable`} />
           <View style={styles.propertyInfo}>
             <Text accessibilityRole="header" style={styles.propertyName}>{property.name}</Text>
             <Text style={styles.propertyCity}>{property.city}</Text>
-            {room ? <Text style={styles.roomText}>{room.type} Room · R{room.price.toLocaleString()}/month</Text> : sampleRoom ? <Text style={styles.roomText}>{sampleRoom}</Text> : null}
-            <Text style={styles.appId}>Application ID: <Text style={styles.appIdValue}>{summary?.id ?? sampleReference}</Text></Text>
-            <Text style={styles.dateText}>Submitted: {dateLabel}</Text>
-            <StatusBadge label={summary?.statusLabel ?? `${sampleStatus ?? 'Under review'}`} variant={isLocalApplication ? 'blue' : 'amber'} />
+            {summary ? <Text style={styles.roomText}>{summary.roomType} · {formatMonthlyRent(summary.roomPrice)}</Text> : sampleRoom ? <Text style={styles.roomText}>{sampleRoom}</Text> : null}
+            <Text style={styles.appId}>{isLocalApplication ? 'Application ID: ' : 'Record reference: '}<Text style={styles.appIdValue}>{summary?.id ?? sampleReference}</Text></Text>
+            {isLocalApplication ? <Text style={styles.dateText}>Created: {dateLabel}</Text> : null}
+            <StatusBadge label={summary?.statusLabel ?? (bookingTab === 'Applications' ? 'Status unavailable' : bookingTab)} variant={isLocalApplication ? 'blue' : 'amber'} />
           </View>
         </View>
 
-        <View style={styles.timelineCard}>
+        {isLocalApplication ? <View style={styles.timelineCard}>
           <Text accessibilityRole="header" style={styles.sectionTitle}>Application Progress</Text>
-          {milestones.map((milestone, index) => {
+          {localMilestones.map((milestone, index) => {
             const done = milestone.state === 'done';
-            const active = milestone.state === 'active';
             return (
               <View key={milestone.label} accessible accessibilityLabel={`${milestone.label}. ${milestone.sub}`} style={styles.milestoneRow}>
                 <View style={styles.milestoneLeft}>
-                  <View style={[styles.milestoneCircle, done && styles.milestoneDone, active && styles.milestoneActive]}>
-                    {done ? <Text style={styles.milestoneCheck}>✓</Text> : <View style={[styles.milestoneDot, active && styles.milestoneDotActive]} />}
+                  <View style={[styles.milestoneCircle, done && styles.milestoneDone]}>
+                    {done ? <Text style={styles.milestoneCheck}>✓</Text> : <View style={styles.milestoneDot} />}
                   </View>
-                  {index < milestones.length - 1 ? <View style={[styles.milestoneLine, done && styles.milestoneLineDone]} /> : null}
+                  {index < localMilestones.length - 1 ? <View style={[styles.milestoneLine, done && styles.milestoneLineDone]} /> : null}
                 </View>
                 <View style={styles.milestoneContent}>
-                  <Text style={[styles.milestoneLabel, done && styles.milestoneLabelDone, active && styles.milestoneLabelActive]}>{milestone.label}</Text>
-                  <Text style={[styles.milestoneSub, active && styles.milestoneSubActive]}>{milestone.sub}</Text>
+                  <Text style={[styles.milestoneLabel, done && styles.milestoneLabelDone]}>{milestone.label}</Text>
+                  <Text style={styles.milestoneSub}>{milestone.sub}</Text>
                 </View>
               </View>
             );
           })}
-        </View>
+        </View> : null}
 
         <View style={styles.actions}>
           <Btn variant="secondary" onPress={() => navigation.navigate('Property', { property })} style={styles.actionButton}>View Property</Btn>
-          <Btn onPress={() => navigation.popTo('Main', { screen: 'Bookings' })} style={styles.actionButton}>{isLocalApplication ? 'My Applications' : 'My Bookings'}</Btn>
+          <Btn onPress={returnToBookings} style={styles.actionButton}>{isLocalApplication ? 'My Applications' : 'My Bookings'}</Btn>
         </View>
       </ScrollView>
     </View>

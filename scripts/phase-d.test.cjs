@@ -92,7 +92,7 @@ test('bookings preserve separate Applications and booking tabs', () => {
   const bookingSource = source('src/screens/BookingsScreen.tsx');
   assert.match(bookingSource, /'Applications'/);
   assert.match(bookingSource, /No booking confirmed/);
-  assert.match(bookingSource, /On-device record/);
+  assert.match(bookingSource, /Illustrative booking records · Not actual stays/);
 });
 test('application status navigation passes the exact application ID', () => assert.match(source('src/screens/BookingsScreen.tsx'), /applicationId: item\.application\.id/));
 test('sending trims a local message', () => {
@@ -142,7 +142,12 @@ test('only the valid message notification maps to a conversation', () => {
   assert.equal(communication.getNotificationConversationId('n3'), 'c1');
   assert.equal(communication.getNotificationConversationId('n1'), undefined);
 });
-test('Profile notifications action opens Notifications', () => assert.match(source('src/screens/ProfileScreen.tsx'), /navigation\.navigate\('Notifications'\)/));
+test('Profile notifications action opens Notifications', () => {
+  const { harness } = require('./profile-harness.cjs');
+  const result = harness('src/screens/ProfileScreen.tsx');
+  result.render().find((node) => node.props.accessibilityLabel === 'Notifications, 2 unread').props.onPress();
+  assert.deepEqual(result.calls, [{ action: 'navigate', args: ['Notifications'] }]);
+});
 test('logout requires confirmation, clears providers, and opens Login', () => {
   const profile = source('src/screens/ProfileScreen.tsx');
   assert.match(profile, /Alert\.alert/);

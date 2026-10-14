@@ -55,6 +55,7 @@ function renderComponent(file, { loaded = false, error = null, expired = false, 
   vm.runInNewContext(compiled, {
     module, exports: module.exports,
     require: (name) => {
+      if (name.endsWith('/bookings')) return require('./profile-harness.cjs').load('src/bookings.ts');
       if (name.endsWith('/theme')) {
         const themeModule = { exports: {} };
         const theme = ts.transpileModule(fs.readFileSync(path.join(__dirname, '../src/theme.ts'), 'utf8'), {
@@ -113,7 +114,8 @@ for (const [name, state] of [
     assert.equal(navigator.props.initialRouteName, 'Main');
     assert.deepEqual(screens.map((screen) => screen.props.name), [
       'Splash', 'Onboarding', 'Login', 'Register', 'Forgot', 'Main',
-      'Property', 'Apply', 'AppStatus', 'Compare', 'Chat', 'Notifications', 'Manager',
+      'Property', 'Apply', 'AppStatus', 'Compare', 'Chat', 'Notifications',
+      'PersonalInformation', 'MyDocuments', 'Security', 'HelpSupport', 'TermsPrivacy', 'Manager',
     ]);
     assert.equal(result.timers.length, 0);
     assert.equal(result.warnings.length, name === 'loaded' ? 0 : 1);

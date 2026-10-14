@@ -24,6 +24,7 @@ import type { MainTabParamList, RootStackParamList } from './src/navigation/type
 import { FavoritesProvider } from './src/state/FavoritesContext';
 import { ApplicationProvider } from './src/state/ApplicationContext';
 import { CommunicationProvider, useCommunication } from './src/state/CommunicationContext';
+import { ProfileProvider } from './src/state/ProfileContext';
 
 // Screens
 import SplashScreen from './src/screens/SplashScreen';
@@ -43,6 +44,11 @@ import MessagesScreen from './src/screens/MessagesScreen';
 import ChatScreen from './src/screens/ChatScreen';
 import NotificationsScreen from './src/screens/NotificationsScreen';
 import ProfileScreen from './src/screens/ProfileScreen';
+import PersonalInformationScreen from './src/screens/PersonalInformationScreen';
+import MyDocumentsScreen from './src/screens/MyDocumentsScreen';
+import SecurityScreen from './src/screens/SecurityScreen';
+import HelpSupportScreen from './src/screens/HelpSupportScreen';
+import TermsPrivacyScreen from './src/screens/TermsPrivacyScreen';
 import ManagerScreen from './src/screens/ManagerScreen';
 
 //font awesome
@@ -63,8 +69,10 @@ const Tab = createBottomTabNavigator<MainTabParamList>();
 function MainTabs() {
   const { unreadMessageCount } = useCommunication();
   const insets = useSafeAreaInsets();
-  const { fontScale } = useWindowDimensions();
-  const tabBarHeight = 54 + Math.max(insets.bottom, 8) + Math.max(0, Math.min(fontScale, 2) - 1) * 18;
+  const { fontScale, width } = useWindowDimensions();
+  // Six tabs need room for a second label line on narrow phones.
+  const labelWrapSpace = width / 6 < 64 ? 12 * Math.min(fontScale, 1.2) : 0;
+  const tabBarHeight = 54 + labelWrapSpace + Math.max(insets.bottom, 8) + Math.max(0, Math.min(fontScale, 2) - 1) * 18;
   return (
     <Tab.Navigator
   screenOptions={{
@@ -88,9 +96,9 @@ function MainTabs() {
     },
     tabBarLabel: ({ color, children }) => (
       <Text
-        numberOfLines={1}
+        numberOfLines={2}
         maxFontSizeMultiplier={1.2}
-        style={{ color, fontSize: 9, fontFamily: Fonts.bodyMed }}
+        style={{ color, fontSize: 9, textAlign: 'center', fontFamily: Fonts.bodyMed }}
       >
         {children}
       </Text>
@@ -229,6 +237,7 @@ export default function App() {
       <FavoritesProvider>
         <ApplicationProvider>
           <CommunicationProvider>
+          <ProfileProvider>
           <NavigationContainer>
           <Stack.Navigator initialRouteName="Main" screenOptions={{ headerShown: false, animation: 'slide_from_right' }}>
           <Stack.Screen name="Splash" component={SplashScreen} />
@@ -243,9 +252,15 @@ export default function App() {
           <Stack.Screen name="Compare" component={CompareScreen} />
           <Stack.Screen name="Chat" component={ChatScreen} />
           <Stack.Screen name="Notifications" component={NotificationsScreen} />
+          <Stack.Screen name="PersonalInformation" component={PersonalInformationScreen} />
+          <Stack.Screen name="MyDocuments" component={MyDocumentsScreen} />
+          <Stack.Screen name="Security" component={SecurityScreen} />
+          <Stack.Screen name="HelpSupport" component={HelpSupportScreen} />
+          <Stack.Screen name="TermsPrivacy" component={TermsPrivacyScreen} />
           <Stack.Screen name="Manager" component={ManagerScreen} />
           </Stack.Navigator>
           </NavigationContainer>
+          </ProfileProvider>
           </CommunicationProvider>
         </ApplicationProvider>
       </FavoritesProvider>

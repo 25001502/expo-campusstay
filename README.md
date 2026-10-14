@@ -18,6 +18,7 @@ npm run test:application
 npm run test:phase-d
 npm run test:phase-e
 npm run test:phase-f
+npm run test:profile
 npm run check:dependencies
 npm run doctor
 npm run export:check
@@ -29,6 +30,9 @@ Baseline tests exercise the actual startup component and navigation callbacks
 with mocked native modules; they are not emulator tests.
 UI component tests cover shared accessibility state, minimum touch targets,
 status semantics, recovery states, and remote-image loading/failure behavior.
+Profile/settings tests exercise local editing, document associations, menu
+navigation, notification read state, FAQs, and the logout reset contract.
+See [Profile & Settings refinement](docs/profile-settings-refinement.md).
 
 The baseline retains Expo SDK 57. React/React Native and native modules follow
 Expo's installed `bundledNativeModules.json` and compatibility checker.
