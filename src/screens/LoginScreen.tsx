@@ -1,77 +1,70 @@
-import React, { useState } from 'react';
-import { Alert, Image, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
+import React, { useCallback, useState } from 'react';
+import { StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
+import { Ionicons } from '@expo/vector-icons';
+import { Feedback } from '../components/Feedback';
+import { KeyboardForm } from '../components/KeyboardForm';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Btn, Divider, Input } from '../components/UI';
-import { AUTH_FEEDBACK, validateLogin, type LoginFields } from '../demoAuth';
+import { Btn, Input } from '../components/UI';
+import { validateAccount } from '../auth/account';
+import { useAuth } from '../state/AuthContext';
 import type { RootStackParamList } from '../navigation/types';
 import { Colors, Fonts, Interaction, Radius, Spacing, TextColors } from '../theme';
 
-type Props = NativeStackScreenProps<RootStackParamList, 'Login'>;
+type Props = NativeStackScreenProps<RootStackParamList, 'Login' | 'ManagerLogin'>;
 
-export default function LoginScreen({ navigation }: Props) {
+export default function LoginScreen({ navigation, route }: Props) {
+  const manager = route?.name === 'ManagerLogin';
   const insets = useSafeAreaInsets();
   const { height, fontScale } = useWindowDimensions();
   const compact = height < 720 || fontScale > 1.25;
-  const [fields, setFields] = useState<LoginFields>({ email: '', password: '' });
-  const [errors, setErrors] = useState<ReturnType<typeof validateLogin>>({});
-  const update = (key: keyof LoginFields, value: string) => {
+  const auth = useAuth();
+  useFocusEffect(useCallback(() => { auth.account.clearError(); }, [auth.account]));
+  const [fields, setFields] = useState<{ email: string; password: string }>({ email: '', password: '' });
+  const [errors, setErrors] = useState<ReturnType<typeof validateAccount>>({});
+  const update = (key: 'email' | 'password', value: string) => {
+    auth.account.clearError();
     setFields((current) => ({ ...current, [key]: value }));
     setErrors((current) => ({ ...current, [key]: undefined }));
   };
   const submit = () => {
-    const nextErrors = validateLogin(fields);
+    if (auth.busy) return;
+    const nextErrors = validateAccount(fields);
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length) return;
-    Alert.alert('Sign-in unavailable', AUTH_FEEDBACK.login);
+    if (manager) void auth.account.signIn(fields.email, fields.password, 'manager');
+    else void auth.account.signIn(fields.email, fields.password);
   };
-  const openManagerWorkspace = () => Alert.alert(
-    'Open manager workspace?',
-    AUTH_FEEDBACK.manager,
-    [{ text: 'Cancel', style: 'cancel' }, { text: 'Open workspace', onPress: () => navigation.replace('Manager') }],
-  );
+
 
   return (
-    <KeyboardAvoidingView style={[styles.flex, { paddingTop: insets.top, paddingLeft: insets.left, paddingRight: insets.right }]} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-      <ScrollView
-        style={styles.container}
-        contentContainerStyle={[styles.scroll, { paddingBottom: Math.max(insets.bottom, Spacing.lg) }]}
-        keyboardShouldPersistTaps="handled"
-        keyboardDismissMode="on-drag"
-        automaticallyAdjustKeyboardInsets
-        showsVerticalScrollIndicator={false}
-      >
+    <KeyboardForm style={[styles.flex, { paddingTop: insets.top, paddingLeft: insets.left, paddingRight: insets.right }]} contentContainerStyle={[styles.scroll, { paddingBottom: Math.max(insets.bottom, Spacing.lg) }]} scrollStyle={styles.container} showsVerticalScrollIndicator={false}>
         <View style={[styles.header, { paddingTop: compact ? Spacing.xl : Spacing.xxl }]}>
           <View style={[styles.contentWidth, styles.headerContentWidth]}>
+            {manager ? <TouchableOpacity disabled={auth.busy} accessibilityRole="button" accessibilityLabel="Back to student login" accessibilityState={{ disabled: auth.busy }} onPress={() => navigation.popTo('Login')} style={styles.backButton}><Text style={styles.backText}>← Student sign in</Text></TouchableOpacity> : null}
             <View style={styles.brandRow}>
-              <View importantForAccessibility="no-hide-descendants" style={[styles.logo, compact && styles.logoCompact]}><Text maxFontSizeMultiplier={1.2} style={styles.logoIcon}>🏠</Text></View>
+              <View importantForAccessibility="no-hide-descendants" style={[styles.logo, compact && styles.logoCompact]}>{manager ? <Ionicons name="business-outline" size={24} color={Colors.white} /> : <Text maxFontSizeMultiplier={1.2} style={styles.logoIcon}>🏠</Text>}</View>
               <Text style={styles.brand}>CampusStay</Text>
             </View>
-            <Text accessibilityRole="header" style={styles.title}>Welcome back</Text>
-            <Text style={styles.subtitle}>Sign in to manage your accommodation</Text>
+            <Text accessibilityRole="header" style={styles.title}>{manager ? 'Manager Portal' : 'Welcome back'}</Text>
+            <Text style={styles.subtitle}>{manager ? 'Sign in to manage your accommodation properties.' : 'Sign in to continue to CampusStay.'}</Text>
           </View>
         </View>
         <View style={[styles.form, styles.contentWidth]}>
-          <Input label="Email address" placeholder="you@example.com" value={fields.email} onChangeText={(value) => update('email', value)} error={errors.email} keyboardType="email-address" autoComplete="email" textContentType="emailAddress" returnKeyType="next" multiline={false} required />
-          <Input label="Password" placeholder="••••••••" value={fields.password} onChangeText={(value) => update('password', value)} error={errors.password} secureTextEntry passwordVisibilityToggle autoComplete="current-password" textContentType="password" returnKeyType="done" onSubmitEditing={submit} submitBehavior="blurAndSubmit" multiline={false} required style={styles.field} />
-          <TouchableOpacity accessibilityRole="button" accessibilityLabel="Forgot password" activeOpacity={Interaction.pressedOpacity} style={styles.forgotButton} onPress={() => navigation.navigate('Forgot')}><Text style={styles.forgotText}>Forgot password?</Text></TouchableOpacity>
-          <Btn accessibilityHint="Validates the form and explains sign-in availability" onPress={submit} style={styles.primaryButton}>Sign In</Btn>
-          <View style={styles.dividerRow}><Divider style={styles.divider} /><Text style={styles.orText}>or</Text><Divider style={styles.divider} /></View>
-          <Btn variant="secondary" accessibilityLabel="Sign in with Google" accessibilityHint="Explains Google sign-in availability" onPress={() => Alert.alert('Google sign-in unavailable', AUTH_FEEDBACK.google)} style={styles.googleButton}>
-            <View style={styles.googleContent}>
-              {/* Official artwork: https://developers.google.com/identity/branding-guidelines */}
-              <Image source={require('../../assets/google-g.png')} style={styles.googleIcon} resizeMode="contain" accessible={false} importantForAccessibility="no-hide-descendants" />
-              <Text style={styles.googleText}>Sign in with Google</Text>
-            </View>
-          </Btn>
-          <Btn variant="secondary" accessibilityHint="Opens the student Home screen without credentials" onPress={() => navigation.reset({ index: 0, routes: [{ name: 'Main', params: { screen: 'Home' } }] })} style={styles.continueButton}>Continue without signing in</Btn>
+          <Input disabled={auth.busy} label="Email address" placeholder="you@example.com" value={fields.email} onChangeText={(value) => update('email', value)} error={errors.email} keyboardType="email-address" autoComplete="email" textContentType="emailAddress" returnKeyType="next" multiline={false} required />
+          <Input disabled={auth.busy} label="Password" placeholder="••••••••" value={fields.password} onChangeText={(value) => update('password', value)} error={errors.password} secureTextEntry passwordVisibilityToggle autoComplete="current-password" textContentType="password" returnKeyType="done" onSubmitEditing={submit} submitBehavior="blurAndSubmit" multiline={false} required style={styles.field} />
+          <TouchableOpacity disabled={auth.busy} accessibilityState={{ disabled: auth.busy }} accessibilityRole="button" accessibilityLabel="Forgot password" activeOpacity={Interaction.pressedOpacity} style={styles.forgotButton} onPress={() => manager ? navigation.navigate('Forgot', { returnTo: 'ManagerLogin' }) : navigation.navigate('Forgot')}><Text style={styles.forgotText}>Forgot password?</Text></TouchableOpacity>
+          <Feedback message={auth.error} />
+          <Btn loading={auth.busy} disabled={!auth.configured} accessibilityHint={manager ? 'Signs in with your CampusStay account; manager approval is required separately' : 'Signs in with your verified CampusStay account'} onPress={submit} style={styles.primaryButton}>{manager ? 'Sign In as Manager' : 'Sign In'}</Btn>
           <View style={styles.footer}>
-            <View style={styles.registerRow}><Text style={styles.registerText}>Don&apos;t have an account?</Text><TouchableOpacity accessibilityRole="button" accessibilityLabel="Create account" activeOpacity={Interaction.pressedOpacity} style={styles.footerLink} onPress={() => navigation.navigate('Register')}><Text style={styles.registerLink}>Create account</Text></TouchableOpacity></View>
-            <TouchableOpacity accessibilityRole="button" accessibilityLabel="Open manager workspace" accessibilityHint={AUTH_FEEDBACK.manager} activeOpacity={Interaction.pressedOpacity} style={styles.managerButton} onPress={openManagerWorkspace}><Text style={styles.managerText}>Manager workspace →</Text></TouchableOpacity>
+            <View style={styles.registerRow}><Text style={styles.registerText}>{manager ? 'New property manager?' : "Don't have an account?"}</Text><TouchableOpacity disabled={auth.busy} accessibilityState={{ disabled: auth.busy }} accessibilityRole="button" accessibilityLabel={manager ? 'Register as a property manager' : 'Create account'} activeOpacity={Interaction.pressedOpacity} style={styles.footerLink} onPress={() => navigation.navigate(manager ? 'ManagerRegister' : 'Register')}><Text style={styles.registerLink}>{manager ? 'Register here' : 'Create account'}</Text></TouchableOpacity></View>
+            {!manager ? <TouchableOpacity disabled={auth.busy} accessibilityRole="button" accessibilityLabel="Manager Access" accessibilityHint="Opens the separate manager sign-in journey" accessibilityState={{ disabled: auth.busy }} activeOpacity={Interaction.pressedOpacity} onPress={() => navigation.navigate('ManagerLogin')} style={styles.managerAccess}>
+              <Ionicons name="business-outline" size={19} color={TextColors.link} importantForAccessibility="no-hide-descendants" /><Text style={styles.managerAccessText}>Manager Access</Text><Ionicons name="chevron-forward" size={18} color={TextColors.muted} importantForAccessibility="no-hide-descendants" />
+            </TouchableOpacity> : null}
           </View>
         </View>
-      </ScrollView>
-    </KeyboardAvoidingView>
+      </KeyboardForm>
   );
 }
 
@@ -90,23 +83,17 @@ const styles = StyleSheet.create({
   title: { color: Colors.white, fontSize: 28, lineHeight: 35, letterSpacing: -0.5, fontFamily: Fonts.heading, marginBottom: Spacing.sm },
   subtitle: { color: Colors.slate300, fontSize: 14, lineHeight: 22, fontFamily: Fonts.body },
   form: { paddingHorizontal: Spacing.xxl, paddingTop: Spacing.xxxl },
-  continueButton: { backgroundColor: Colors.blue50, borderColor: Colors.blue100, marginBottom: Spacing.xxl },
   field: { marginTop: Spacing.lg },
   forgotButton: { minHeight: 44, alignSelf: 'flex-end', justifyContent: 'center', paddingHorizontal: Spacing.xs, marginBottom: Spacing.sm },
   forgotText: { color: TextColors.link, fontSize: 13, lineHeight: 18, fontFamily: Fonts.bodyMed },
   primaryButton: { marginBottom: Spacing.xl, minHeight: 52 },
-  dividerRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md, marginBottom: Spacing.xl },
-  divider: { flex: 1 },
-  orText: { color: TextColors.muted, fontSize: 13, lineHeight: 18, fontFamily: Fonts.body },
-  googleButton: { marginBottom: Spacing.md },
-  googleContent: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: Spacing.md, flexShrink: 1 },
-  googleIcon: { width: 20, height: 20, flexShrink: 0 },
-  googleText: { color: Colors.slate800, fontSize: 15, lineHeight: 20, fontFamily: Fonts.bodySemi, textAlign: 'center', flexShrink: 1 },
   footer: { borderTopWidth: 1, borderTopColor: Colors.slate100, paddingTop: Spacing.md },
   registerRow: { minHeight: 44, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'center', columnGap: Spacing.xs },
   registerText: { fontSize: 14, lineHeight: 21, fontFamily: Fonts.body, color: TextColors.muted, textAlign: 'center' },
   footerLink: { minHeight: 44, justifyContent: 'center', paddingHorizontal: Spacing.xs },
   registerLink: { fontSize: 14, lineHeight: 21, fontFamily: Fonts.bodySemi, color: TextColors.link },
-  managerButton: { minHeight: 44, alignItems: 'center', justifyContent: 'center', marginTop: Spacing.xs },
-  managerText: { fontSize: 13, lineHeight: 18, fontFamily: Fonts.bodyMed, color: Colors.purple600, textAlign: 'center' },
+  backButton: { minHeight: 44, alignSelf: 'flex-start', justifyContent: 'center', marginBottom: Spacing.sm },
+  backText: { color: Colors.slate300, fontSize: 14, lineHeight: 21, fontFamily: Fonts.bodyMed },
+  managerAccess: { borderTopWidth: 1, borderTopColor: Colors.slate100, marginTop: Spacing.md, paddingVertical: Spacing.md, minHeight: 48, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: Spacing.sm },
+  managerAccessText: { flexShrink: 1, color: TextColors.link, fontSize: 14, lineHeight: 21, fontFamily: Fonts.bodyMed },
 });

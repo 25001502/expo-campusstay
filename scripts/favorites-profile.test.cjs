@@ -239,15 +239,14 @@ test('all six Profile settings retain their existing routes and touch targets', 
   assert.equal(result.calls.length, 6);
 });
 
-test('logout Cancel preserves state; confirmation resets every owner and opens Login', () => {
+test('logout Cancel preserves state; confirmation resets every owner and opens Login', async () => {
   const result = screen('Profile', { favoriteIds: ['p1', 'p2'], applications: [{ id: 'a1' }], profile: { ...profile.createEmptyProfile(), fullName: 'Thandi Student' } });
   find(result.render(), 'Log Out').props.onPress(); const actions = result.alerts[0][2];
   assert.equal(result.alerts[0][1], 'Are you sure you want to log out?'); assert.equal(actions[0].text, 'Cancel'); assert.equal(actions[0].onPress, undefined);
   assert.equal(result.resets.length, 0); assert.ok(find(result.render(), '1 Applications')); assert.equal(result.profile.fullName, 'Thandi Student');
-  actions[1].onPress(); assert.deepEqual(result.resets, ['applications', 'favorites', 'communication', 'profile']);
-  assert.ok(find(result.render(), '0 Applications')); assert.equal(result.profile.fullName, ''); assert.deepEqual(result.calls.at(-1), { action: 'replace', args: ['Login'] });
-  const continuation = find(result.renderScreen('src/screens/LoginScreen.tsx'), 'Continue without signing in'); continuation.props.onPress();
-  assert.deepEqual(plain(result.calls.at(-1)), { action: 'reset', args: [{ index: 0, routes: [{ name: 'Main', params: { screen: 'Home' } }] }] });
+  await actions[1].onPress(); assert.deepEqual(result.resets, ['applications', 'favorites', 'communication', 'profile']);
+  assert.ok(find(result.render(), '0 Applications')); assert.equal(result.profile.fullName, ''); assert.equal(result.authCalls.at(-1).name, 'signOut'); assert.equal(result.calls.length, 0);
+  assert.equal(find(result.renderScreen('src/screens/LoginScreen.tsx'), 'Continue without signing in'), undefined);
 });
 
 test('large notification counts remain inside the menu copy at enlarged text', () => {

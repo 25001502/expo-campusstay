@@ -1,5 +1,8 @@
 import { properties as studentProperties, universities, type Property, type Room } from './data';
-import { classifyRoomCapacity, getCurrentRooms, isRoomType } from './rooms';
+import { classifyRoomCapacity, getCurrentRooms, isRetiredRoom, isRoomType, ROOM_TYPES } from './rooms';
+import { newLocalId } from './documents';
+import { FUNDING_REVIEW_STATUSES, type FundingDeclaration, type FundingReviewStatus } from './funding';
+import { propertyGallery, withPropertyGallery, type ManagedProperty } from './managerGallery';
 
 export const MANAGER_PROPERTY_IDS = ['p1', 'p2'] as const;
 export type ManagerPropertyFilter = 'all' | 'available' | 'full';
@@ -14,6 +17,8 @@ export type ManagerApplication = {
   submittedLabel: string;
   documentSummary: string;
   status: ManagerApplicationStatus;
+  funding?: FundingDeclaration;
+  fundingProof?: 'not-attached';
 };
 
 export type ManagerTenant = {
@@ -37,16 +42,26 @@ export type PropertyFormFields = {
   roomCapacity: string;
   roomAvailable: string;
   amenities: string;
+  rooms?: RoomFormFields[];
+};
+
+export type RoomFormFields = {
+  draftId?: string;
+  roomType: string;
+  roomPrice: string;
+  roomCapacity: string;
+  roomAvailable: string;
 };
 
 export type RoomEditFields = { price: string; available: string };
 export type FieldErrors<T extends string> = Partial<Record<T, string>>;
 
 export type ManagerState = {
-  properties: Property[];
+  properties: ManagedProperty[];
   applications: ManagerApplication[];
   tenants: ManagerTenant[];
   reviewNotes: Record<string, string>;
+  fundingReviews: Record<string, FundingReviewStatus>;
   nextPropertySequence: number;
 };
 
@@ -54,12 +69,42 @@ export type ManagerAction =
   | { type: 'add-property'; property: Property }
   | { type: 'update-property'; property: Property }
   | { type: 'update-room'; propertyId: string; room: Room }
+  | { type: 'add-room'; propertyId: string; fields: RoomFormFields }
   | { type: 'save-review-note'; applicationId: string; note: string }
+  | { type: 'set-funding-review'; applicationId: string; status: FundingReviewStatus }
   | { type: 'reset'; state: ManagerState };
 
+export type ManagerReviewAction = Extract<ManagerAction, { type: 'set-funding-review' | 'save-review-note' }>;
+
+// Keep only saved review metadata alive when navigation remounts the portal.
+// This memory belongs to the JavaScript session; nothing is written to storage.
+export function createManagerReviewSession() {
+  let saved: Pick<ManagerState, 'fundingReviews' | 'reviewNotes'> = { fundingReviews: {}, reviewNotes: {} };
+  const restore = (state: ManagerState): ManagerState => {
+    const ids = new Set(state.applications.map((application) => application.id));
+    return {
+      ...state,
+      fundingReviews: Object.fromEntries(Object.entries(saved.fundingReviews).filter(([id]) => ids.has(id))),
+      reviewNotes: Object.fromEntries(Object.entries(saved.reviewNotes).filter(([id]) => ids.has(id))),
+    };
+  };
+  return {
+    restore,
+    clear() { saved = { fundingReviews: {}, reviewNotes: {} }; },
+    save(state: ManagerState, action: ManagerReviewAction) {
+      // Reuse reducer validation and trimming, applying each event to the latest
+      // saved reviews so closely spaced edits cannot overwrite another record.
+      const next = managerReducer(restore(state), action);
+      saved = { fundingReviews: { ...next.fundingReviews }, reviewNotes: { ...next.reviewNotes } };
+    },
+  };
+}
+
+export const managerReviewSession = createManagerReviewSession();
+
 export const managerApplications: ManagerApplication[] = [
-  { id: 'ma-1', applicantName: 'Thabo Sithole', propertyId: 'p1', roomType: 'Private Room', submittedLabel: '2 days ago', documentSummary: '4 categories selected', status: 'New' },
-  { id: 'ma-2', applicantName: 'Naledi Mokoena', propertyId: 'p1', roomType: 'Shared Room', submittedLabel: '1 day ago', documentSummary: '3 categories selected', status: 'In review' },
+  { id: 'ma-1', applicantName: 'Thabo Sithole', propertyId: 'p1', roomType: 'Private Room', submittedLabel: '2 days ago', documentSummary: '3 historical category selections · No files attached', status: 'New', funding: { source: 'self-funded', paymentDiscussionRequested: true }, fundingProof: 'not-attached' },
+  { id: 'ma-2', applicantName: 'Naledi Mokoena', propertyId: 'p1', roomType: 'Shared Room', submittedLabel: '1 day ago', documentSummary: '3 historical category selections · No files attached', status: 'In review', funding: { source: 'nsfas', nsfasStatus: 'pending', paymentDiscussionRequested: false }, fundingProof: 'not-attached' },
   { id: 'ma-3', applicantName: 'Keanu Williams', propertyId: 'p2', roomType: 'Studio Room', submittedLabel: '5 days ago', documentSummary: '4 categories selected', status: 'Review complete' },
 ];
 
@@ -69,9 +114,9 @@ export const managerTenants: ManagerTenant[] = [
   { id: 'mt-3', name: 'Keanu Williams', propertyId: 'p2', roomId: 'r2', moveInLabel: 'Mar 2024', status: 'Active' },
 ];
 
-function cloneProperty(property: Property): Property {
+function cloneProperty(property: Property): ManagedProperty {
   const rooms = getCurrentRooms(property).map((room) => ({ ...room }));
-  return {
+  return withPropertyGallery({
     ...property,
     images: [...property.images],
     amenities: [...property.amenities],
@@ -81,7 +126,7 @@ function cloneProperty(property: Property): Property {
     manager: { ...property.manager },
     rules: [...property.rules],
     tags: [...property.tags],
-  };
+  }, propertyGallery(property));
 }
 
 export function createManagerState(allProperties: readonly Property[] = studentProperties): ManagerState {
@@ -91,9 +136,10 @@ export function createManagerState(allProperties: readonly Property[] = studentP
   const propertyIds = new Set(portfolio.map((property) => property.id));
   return {
     properties: portfolio,
-    applications: managerApplications.filter((application) => propertyIds.has(application.propertyId)).map((application) => ({ ...application })),
+    applications: managerApplications.filter((application) => propertyIds.has(application.propertyId)).map((application) => ({ ...application, funding: application.funding ? { ...application.funding } : undefined })),
     tenants: managerTenants.filter((tenant) => propertyIds.has(tenant.propertyId)).map((tenant) => ({ ...tenant })),
     reviewNotes: {},
+    fundingReviews: {},
     nextPropertySequence: 1,
   };
 }
@@ -107,14 +153,15 @@ export function getManagerMetrics(state: Pick<ManagerState, 'properties' | 'appl
   const propertyIds = new Set(state.properties.map((property) => property.id));
   const activeTenants = state.tenants.filter((tenant) => tenant.status === 'Active' && propertyIds.has(tenant.propertyId)).length;
   const awaitingReview = state.applications.filter((application) => propertyIds.has(application.propertyId) && application.status !== 'Review complete').length;
-  const capacity = availableRooms + activeTenants;
   return {
     totalProperties: state.properties.length,
     availableRooms,
-    occupiedRooms: activeTenants,
+    // roomId identifies an offering/category, not an individual physical unit.
+    // Tenant count cannot establish occupied rooms or occupancy percentage.
+    occupiedRooms: null,
     awaitingReview,
     activeTenants,
-    occupancyRate: capacity ? Math.round((activeTenants / capacity) * 100) : 0,
+    occupancyRate: null,
   };
 }
 
@@ -149,6 +196,15 @@ export function emptyPropertyForm(): PropertyFormFields {
   return { name: '', city: '', address: '', university: '', description: '', type: 'Residence', roomType: '', roomPrice: '', roomCapacity: '', roomAvailable: '', amenities: '' };
 }
 
+export function normalizeAmenities(value: string): string[] {
+  const names = new Map<string, string>();
+  for (const part of value.split(',')) {
+    const name = part.trim().replace(/\s+/g, ' ');
+    if (name && !names.has(name.toLocaleLowerCase())) names.set(name.toLocaleLowerCase(), name);
+  }
+  return [...names.values()];
+}
+
 export function propertyToForm(property: Property): PropertyFormFields {
   const room = property.rooms[0];
   return {
@@ -174,6 +230,24 @@ export function validatePropertyForm(fields: PropertyFormFields): FieldErrors<ke
   if (!fields.university.trim()) errors.university = 'Select a university.';
   if (!fields.description.trim()) errors.description = 'Enter a description.';
   if (!fields.type.trim()) errors.type = 'Enter a property type.';
+  const rooms = getRoomFormFields(fields);
+  Object.assign(errors, validateRoomForm(rooms[0] ?? { roomType: '', roomCapacity: '', roomPrice: '', roomAvailable: '' }));
+  if (rooms.length < 1 || rooms.length > ROOM_TYPES.length || validateRoomSections(rooms).some((room) => Object.keys(room).length)) errors.rooms = 'Configure one or two different room types and correct the highlighted fields.';
+  return errors;
+}
+
+export function emptyRoomForm(roomType = ''): RoomFormFields {
+  return { draftId: newLocalId('room-section'), roomType, roomCapacity: roomType === 'Single' ? '1' : roomType === 'Shared' ? '2' : '', roomPrice: '', roomAvailable: '' };
+}
+
+// Existing callers can still provide the original flat first-room fields.
+// The creation UI uses the room array as its canonical, independently keyed draft.
+export function getRoomFormFields(fields: PropertyFormFields): RoomFormFields[] {
+  return fields.rooms ?? [{ draftId: 'initial-room', roomType: fields.roomType, roomPrice: fields.roomPrice, roomCapacity: fields.roomCapacity, roomAvailable: fields.roomAvailable }];
+}
+
+export function validateRoomForm(fields: RoomFormFields): FieldErrors<keyof RoomFormFields> {
+  const errors: FieldErrors<keyof RoomFormFields> = {};
   if (!isRoomType(fields.roomType)) errors.roomType = 'Select Single Room or Shared Room.';
   const capacity = Number(fields.roomCapacity);
   if (!fields.roomCapacity?.trim() || classifyRoomCapacity(capacity) !== fields.roomType) errors.roomCapacity = 'Use capacity 1 for Single Room or a whole number of 2 or more for Shared Room.';
@@ -184,12 +258,68 @@ export function validatePropertyForm(fields: PropertyFormFields): FieldErrors<ke
   return errors;
 }
 
+export function validateRoomSections(rooms: readonly RoomFormFields[]) {
+  return rooms.map((room, index) => {
+    const errors = validateRoomForm(room);
+    if (rooms.some((other, otherIndex) => otherIndex !== index && other.roomType === room.roomType && isRoomType(room.roomType))) errors.roomType = 'This property already has that room type.';
+    return errors;
+  });
+}
+
+function withRoomForms(fields: PropertyFormFields, rooms: RoomFormFields[]): PropertyFormFields {
+  const first = rooms[0];
+  return { ...fields, rooms, roomType: first?.roomType ?? '', roomCapacity: first?.roomCapacity ?? '', roomPrice: first?.roomPrice ?? '', roomAvailable: first?.roomAvailable ?? '' };
+}
+
+export function changeRoomSection(fields: PropertyFormFields, index: number, key: keyof Omit<RoomFormFields, 'draftId'>, value: string): PropertyFormFields {
+  const rooms = getRoomFormFields(fields);
+  if (!rooms[index] || (key === 'roomType' && (!isRoomType(value) || rooms.some((room, otherIndex) => index !== otherIndex && room.roomType === value)))) return fields;
+  const next = { ...rooms[index], [key]: value };
+  if (key === 'roomType') next.roomCapacity = value === 'Single' ? '1' : Number.isInteger(Number(next.roomCapacity)) && Number(next.roomCapacity) >= 2 ? next.roomCapacity : '2';
+  return withRoomForms(fields, rooms.map((room, roomIndex) => roomIndex === index ? next : room));
+}
+
+export function addRoomSection(fields: PropertyFormFields): PropertyFormFields {
+  const rooms = getRoomFormFields(fields);
+  if (rooms.length >= ROOM_TYPES.length || rooms.some((room) => !isRoomType(room.roomType))) return fields;
+  const missing = ROOM_TYPES.find((type) => !rooms.some((room) => room.roomType === type));
+  return missing ? withRoomForms(fields, [...rooms, emptyRoomForm(missing)]) : fields;
+}
+
+export function removeRoomSection(fields: PropertyFormFields, index: number): PropertyFormFields {
+  const rooms = getRoomFormFields(fields);
+  return rooms.length > 1 && rooms[index] ? withRoomForms(fields, rooms.filter((_, roomIndex) => roomIndex !== index)) : fields;
+}
+
+export function propertyFormSignature(fields: PropertyFormFields) {
+  return JSON.stringify({ ...fields, rooms: getRoomFormFields(fields).map(({ roomType, roomCapacity, roomPrice, roomAvailable }) => ({ roomType, roomCapacity, roomPrice, roomAvailable })) });
+}
+
+function makeManagerRoom(id: string, fields: RoomFormFields): Room {
+  if (!isRoomType(fields.roomType) || Object.keys(validateRoomForm(fields)).length) throw new Error('Valid room details are required.');
+  return { id, type: fields.roomType, capacity: Number(fields.roomCapacity), price: Number(fields.roomPrice), available: Number(fields.roomAvailable), bathroom: 'Not specified', furnished: false };
+}
+
+export function getMissingRoomTypes(property: Property) {
+  return ROOM_TYPES.filter((type) => !getCurrentRooms(property).some((room) => room.type === type));
+}
+
+export function addManagerRoom(property: Property, fields: RoomFormFields): ManagedProperty {
+  if (Object.keys(validateRoomForm(fields)).length || !getMissingRoomTypes(property).some((type) => type === fields.roomType)) throw new Error('Choose a missing room type and valid room details.');
+  const base = `${property.id}-room-${fields.roomType.toLowerCase()}`;
+  let id = base, suffix = 2;
+  while (property.rooms.some((room) => room.id === id) || isRetiredRoom(property.id, id)) id = `${base}-${suffix++}`;
+  const rooms = [...getCurrentRooms(property), makeManagerRoom(id, fields)];
+  return withPropertyGallery({ ...property, rooms, available: rooms.reduce((sum, room) => sum + room.available, 0), price: Math.min(...rooms.map((room) => room.price)) }, propertyGallery(property));
+}
+
 export function createManagerProperty(fields: PropertyFormFields, sequence: number): Property {
-  if (Object.keys(validatePropertyForm(fields)).length || !isRoomType(fields.roomType)) throw new Error('Valid property and room details are required.');
+  if (Object.keys(validatePropertyForm(fields)).length) throw new Error('Valid property and room details are required.');
   const id = `manager-property-${sequence}`;
-  const price = Number(fields.roomPrice);
-  const available = Number(fields.roomAvailable);
-  const amenities = fields.amenities.split(',').map((item) => item.trim()).filter(Boolean);
+  const rooms = getRoomFormFields(fields).map((room, index) => makeManagerRoom(`${id}-room-${index + 1}`, room));
+  const price = Math.min(...rooms.map((room) => room.price));
+  const available = rooms.reduce((sum, room) => sum + room.available, 0);
+  const amenities = normalizeAmenities(fields.amenities);
   return {
     id,
     name: fields.name.trim(),
@@ -206,7 +336,7 @@ export function createManagerProperty(fields: PropertyFormFields, sequence: numb
     description: fields.description.trim(),
     images: [],
     amenities,
-    rooms: [{ id: `${id}-room-1`, type: fields.roomType, capacity: Number(fields.roomCapacity), price, available, bathroom: 'Not specified', furnished: false }],
+    rooms,
     manager: { name: 'Property Manager', responseTime: 'Not available', verified: false },
     rules: [],
     tags: [],
@@ -214,7 +344,7 @@ export function createManagerProperty(fields: PropertyFormFields, sequence: numb
 }
 
 export function updateManagerProperty(property: Property, fields: PropertyFormFields): Property {
-  const amenities = fields.amenities.split(',').map((item) => item.trim()).filter(Boolean);
+  const amenities = normalizeAmenities(fields.amenities);
   return {
     ...property,
     name: fields.name.trim(),
@@ -236,25 +366,32 @@ export function validateRoomEdit(fields: RoomEditFields): FieldErrors<keyof Room
   return errors;
 }
 
-export function updateManagerRoom(property: Property, roomId: string, fields: RoomEditFields): Property {
+export function updateManagerRoom(property: Property, roomId: string, fields: RoomEditFields): ManagedProperty {
   const rooms = getCurrentRooms(property).map((room) => room.id === roomId
     ? { ...room, price: Number(fields.price), available: Number(fields.available) }
     : room);
   const available = rooms.reduce((total, room) => total + room.available, 0);
   const prices = rooms.map((room) => room.price);
-  return { ...property, rooms, available, price: prices.length ? Math.min(...prices) : property.price };
+  return withPropertyGallery({ ...property, rooms, available, price: prices.length ? Math.min(...prices) : property.price }, propertyGallery(property));
 }
 
 export function getPropertyAnalytics(state: Pick<ManagerState, 'properties' | 'tenants'>) {
   return state.properties.map((property) => {
     const available = getPropertyAvailableRooms(property);
-    const occupied = state.tenants.filter((tenant) => tenant.status === 'Active' && tenant.propertyId === property.id).length;
-    const capacity = available + occupied;
-    return { propertyId: property.id, propertyName: property.name, available, occupied, occupancyRate: capacity ? Math.round((occupied / capacity) * 100) : 0 };
+    const activeTenants = state.tenants.filter((tenant) => tenant.status === 'Active' && tenant.propertyId === property.id).length;
+    return { propertyId: property.id, propertyName: property.name, available, activeTenants, occupied: null, occupancyRate: null };
   });
 }
 
 export function managerReducer(state: ManagerState, action: ManagerAction): ManagerState {
+  if (action.type === 'set-funding-review') {
+    if (!state.applications.some((application) => application.id === action.applicationId)
+      || !FUNDING_REVIEW_STATUSES.includes(action.status)) return state;
+    const fundingReviews = { ...state.fundingReviews };
+    if (action.status === 'Not reviewed') delete fundingReviews[action.applicationId];
+    else fundingReviews[action.applicationId] = action.status;
+    return { ...state, fundingReviews };
+  }
   if (action.type === 'add-property') {
     if (state.properties.some((property) => property.id === action.property.id)) return state;
     return { ...state, properties: [...state.properties, cloneProperty(action.property)], nextPropertySequence: state.nextPropertySequence + 1 };
@@ -270,6 +407,12 @@ export function managerReducer(state: ManagerState, action: ManagerAction): Mana
     if (Object.keys(validateRoomEdit(fields)).length) return state;
     const updated = updateManagerRoom(property, action.room.id, fields);
     return { ...state, properties: state.properties.map((item) => item.id === updated.id ? updated : item) };
+  }
+  if (action.type === 'add-room') {
+    const property = state.properties.find((item) => item.id === action.propertyId);
+    if (!property || Object.keys(validateRoomForm(action.fields)).length || !getMissingRoomTypes(property).some((type) => type === action.fields.roomType)) return state;
+    const updated = addManagerRoom(property, action.fields);
+    return { ...state, properties: state.properties.map((item) => item.id === property.id ? updated : item) };
   }
   if (action.type === 'save-review-note') {
     if (!state.applications.some((application) => application.id === action.applicationId)) return state;

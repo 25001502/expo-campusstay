@@ -18,10 +18,14 @@ export type RootStackParamList = {
   Onboarding: undefined;
   Login: undefined;
   Register: undefined;
-  Forgot: undefined;
+  ManagerLogin: undefined;
+  ManagerRegister: undefined;
+  Forgot: { returnTo?: 'Login' | 'ManagerLogin' } | undefined;
+  ManagerRequest: undefined;
   Main: NavigatorScreenParams<MainTabParamList> | undefined;
   Property: { property: Property };
   Apply: { property: Property; selectedRoomId?: string };
+  UpdateFunding: { applicationId: string };
   AppStatus:
     | { property: Property; applicationId: string; sampleReference?: never; sampleRoom?: never; sampleStatus?: never }
     | { property: Property; applicationId?: never; sampleReference: string; sampleRoom: string; sampleStatus: string };
@@ -29,7 +33,7 @@ export type RootStackParamList = {
   Chat: { convId: string };
   Notifications: undefined;
   PersonalInformation: undefined;
-  MyDocuments: undefined;
+  MyDocuments: { applicationId?: string } | undefined;
   Security: undefined;
   HelpSupport: undefined;
   TermsPrivacy: undefined;

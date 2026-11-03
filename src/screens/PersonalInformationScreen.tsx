@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Alert, Text, View } from 'react-native';
-import { Picker } from '@react-native-picker/picker';
+import { SelectField } from '../components/SelectField';
 import { usePreventRemove } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Btn, Input } from '../components/UI';
@@ -8,6 +8,7 @@ import { ProfileLayout, ProfileSection, profileStyles as styles } from '../compo
 import { universities } from '../data';
 import type { RootStackParamList } from '../navigation/types';
 import { PROFILE_LIMITS, profilesEqual, validateProfile, type ProfileDetails, type ProfileErrors } from '../profile';
+import { Feedback } from '../components/Feedback';
 import { useProfile } from '../state/ProfileContext';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'PersonalInformation'>;
@@ -19,17 +20,19 @@ export default function PersonalInformationScreen({ navigation }: Props) {
   const [editing, setEditing] = useState(false);
   const [errors, setErrors] = useState<ProfileErrors>({});
   const [feedback, setFeedback] = useState('');
+  const [saveFailed, setSaveFailed] = useState(false);
   const dirty = editing && !profilesEqual(draft, profile);
   usePreventRemove(dirty, ({ data }) => Alert.alert('Discard changes?', 'Your unsaved personal details will be discarded.', [
     { text: 'Keep editing', style: 'cancel' },
     { text: 'Discard', style: 'destructive', onPress: () => navigation.dispatch(data.action) },
   ]));
   const update = (key: keyof ProfileDetails, value: string) => {
+    setFeedback('');
     setDraft((current) => ({ ...current, [key]: value }));
     setErrors((current) => ({ ...current, [key]: undefined }));
   };
   const cancel = () => {
-    const discard = () => { setDraft({ ...profile }); setErrors({}); setEditing(false); };
+    const discard = () => { setDraft({ ...profile }); setErrors({}); setFeedback(''); setSaveFailed(false); setEditing(false); };
     if (dirty) Alert.alert('Discard changes?', 'Your saved details will stay unchanged.', [{ text: 'Keep editing', style: 'cancel' }, { text: 'Discard', style: 'destructive', onPress: discard }]);
     else discard();
   };
@@ -37,22 +40,23 @@ export default function PersonalInformationScreen({ navigation }: Props) {
     const nextErrors = validateProfile(draft);
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length) return;
-    if (!saveProfile(draft)) { setFeedback('Details could not be saved. Review the fields and try again.'); return; }
+    try {
+      if (!saveProfile(draft)) throw new Error();
+    } catch { setSaveFailed(true); setFeedback("We couldn't save your changes. Please try again."); return; }
+    setSaveFailed(false);
     setEditing(false);
     setFeedback('Details saved for this session. They were not sent to a server.');
   };
   return (
     <ProfileLayout title="Personal Information" onBack={() => navigation.goBack()}>
       <Text style={styles.body}>Add only the details you want to keep during this session. All fields are optional. Saved applications retain their own details.</Text>
-      {feedback ? <Text accessibilityRole="alert" accessibilityLiveRegion="polite" style={styles.feedback}>{feedback}</Text> : null}
+      <Feedback message={feedback} tone={saveFailed ? 'error' : 'status'} />
       <ProfileSection title={editing ? 'Edit details' : 'Your details'}>
         {editing ? <>
           <Input label={labels.fullName} value={draft.fullName} onChangeText={(value) => update('fullName', value)} error={errors.fullName} autoComplete="name" maxLength={PROFILE_LIMITS.fullName} />
           <Input label={labels.email} value={draft.email} onChangeText={(value) => update('email', value)} error={errors.email} keyboardType="email-address" autoCapitalize="none" autoComplete="email" maxLength={PROFILE_LIMITS.email} />
           <Input label={labels.phone} value={draft.phone} onChangeText={(value) => update('phone', value)} error={errors.phone} keyboardType="phone-pad" autoComplete="tel" maxLength={PROFILE_LIMITS.phone} />
-          <Text style={styles.label}>{labels.universityId}</Text>
-          <View style={styles.pickerBox}><Picker accessibilityLabel="University" selectedValue={draft.universityId} onValueChange={(value: string) => update('universityId', value)}><Picker.Item label="Not selected" value="" />{universities.map((university) => <Picker.Item key={university.id} label={university.name} value={university.id} />)}</Picker></View>
-          {errors.universityId ? <Text accessibilityRole="alert" style={styles.error}>{errors.universityId}</Text> : null}
+          <SelectField label="University" value={draft.universityId} options={[{ value: '', label: 'Not selected' }, ...universities.map((university) => ({ value: university.id, label: university.name }))]} placeholder="Not selected" onChange={(value) => update('universityId', value)} error={errors.universityId} />
           <Input label={labels.studentNumber} value={draft.studentNumber} onChangeText={(value) => update('studentNumber', value)} error={errors.studentNumber} maxLength={PROFILE_LIMITS.studentNumber} onSubmitEditing={save} returnKeyType="done" submitBehavior="blurAndSubmit" />
           <Btn onPress={save}>Save changes</Btn><Btn variant="secondary" onPress={cancel}>Cancel editing</Btn>
         </> : <>

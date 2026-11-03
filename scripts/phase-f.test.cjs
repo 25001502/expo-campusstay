@@ -17,7 +17,7 @@ function load(file, modules = {}) {
   vm.runInNewContext(compiled, {
     module,
     exports: module.exports,
-    require: (name) => modules[name] ?? (name.startsWith('.') && fs.existsSync(path.resolve(path.dirname(file), name) + '.ts') ? load(path.resolve(path.dirname(file), name) + '.ts', modules) : require(name)),
+    require: (name) => modules[name] ?? (name.startsWith('.') && fs.existsSync(path.resolve(path.dirname(file), name) + '.ts') ? load(path.resolve(path.dirname(file), name) + '.ts', modules) : name.startsWith('.') && fs.existsSync(path.resolve(path.dirname(file), name)) ? require(path.resolve(path.dirname(file), name)) : require(name)),
     Date,
     Object,
     Number,
@@ -76,7 +76,8 @@ test('onboarding uses live viewport dimensions and exposes its skip action', () 
 test('large text receives adaptive student and manager navigation height', () => {
   const app = source('App.tsx');
   assert.match(app, /tabBarHeight/);
-  assert.match(app, /maxFontSizeMultiplier=\{1\.2\}/);
+  assert.match(app, /maxFontSizeMultiplier=\{1\.5\}/);
+  assert.match(app, /allowFontScaling/);
   const managerScreen = source('src/screens/ManagerScreen.tsx');
   assert.match(managerScreen, /fontScale >= 1\.5/);
   assert.match(managerScreen, /navigationHeight/);
@@ -114,26 +115,26 @@ test('application status handles a missing reference instead of inventing one', 
   assert.doesNotMatch(screen, /sampleReference \?\? '#CS-20481'/);
 });
 
-test('login refinement preserves credential-free navigation and responsive keyboard handling', () => {
+test('login refinement retains responsive keyboard handling behind shared authentication', () => {
   const screen = source('src/screens/LoginScreen.tsx');
-  assert.match(screen, /Continue without signing in/);
-  assert.match(screen, /name: 'Main', params: \{ screen: 'Home' \}/);
+  assert.doesNotMatch(screen, /Continue without signing in/);
+  assert.match(screen, /auth.account.signIn/);
   assert.match(screen, /useWindowDimensions/);
   assert.match(screen, /Math\.max\(insets\.bottom, Spacing\.lg\)/);
-  assert.match(screen, /keyboardDismissMode="on-drag"/);
+  assert.match(screen, /<KeyboardForm/);
   assert.match(screen, /onSubmitEditing=\{submit\}/);
   assert.match(screen, /maxWidth: 520/);
-  assert.match(screen, /Open manager workspace/);
+  assert.doesNotMatch(screen, /Open manager workspace/);
 });
 
 function renderLogin(fields = { email: '', password: '' }) {
   const alerts = [];
   const routes = [];
-  const updates = [];
+  const updates = [], authCalls = [];
   let stateIndex = 0;
   const jsx = (type, props) => ({ type, props });
   const screen = load(path.join(root, 'src/screens/LoginScreen.tsx'), {
-    react: { useState: (initial) => [stateIndex++ === 0 ? fields : initial, (value) => updates.push(value)] },
+    react: { useCallback: (callback) => callback, useState: (initial) => [stateIndex++ === 0 ? fields : initial, (value) => updates.push(value)] },
     'react/jsx-runtime': { jsx, jsxs: jsx },
     'react-native': {
       Alert: { alert: (...args) => alerts.push(args) },
@@ -143,22 +144,27 @@ function renderLogin(fields = { email: '', password: '' }) {
       useWindowDimensions: () => ({ height: 800, width: 360, fontScale: 1 }),
     },
     'react-native-safe-area-context': { useSafeAreaInsets: () => ({ top: 24, bottom: 24 }) },
+    '@react-navigation/native': { useFocusEffect() {} },
+    '@expo/vector-icons': { Ionicons: 'Ionicons' },
+    '../components/Feedback': { Feedback: 'Feedback' },
+    '../components/KeyboardForm': { KeyboardForm: 'KeyboardForm' },
     '../components/UI': { Btn: 'Btn', Divider: 'Divider', Input: 'Input' },
-    '../demoAuth': load(path.join(root, 'src/demoAuth.ts')),
+    '../auth/account': load(path.join(root, 'src/auth/account.ts')),
+    '../state/AuthContext': { useAuth: () => ({ configured: true, busy: false, error: '', account: { signIn: (...args) => { authCalls.push(args); return Promise.resolve(true); } } }) },
     '../theme': load(path.join(root, 'src/theme.ts')),
     '../../assets/google-g.png': 'official-google-g',
   });
   const navigation = Object.fromEntries(['navigate', 'replace', 'reset'].map((action) => [action, (route) => routes.push({ action, route })]));
   const tree = screen.default({ navigation });
   const elements = (node) => !node || typeof node !== 'object' ? [] : [node, ...[node.props?.children].flat(Infinity).flatMap(elements)];
-  return { nodes: elements(tree), alerts, routes, updates };
+  return { nodes: elements(tree), alerts, routes, updates, authCalls };
 }
 
 test('login actions follow the requested hierarchy and omit the permanent information banner', () => {
   const { nodes } = renderLogin();
   const buttons = nodes.filter((node) => node.type === 'Btn');
   assert.deepEqual(buttons.map((node) => node.props.accessibilityLabel ?? node.props.children), [
-    'Sign In', 'Sign in with Google', 'Continue without signing in',
+    'Sign In',
   ]);
   const inputs = nodes.filter((node) => node.type === 'Input');
   assert.deepEqual(inputs.map((node) => node.props.label), ['Email address', 'Password']);
@@ -167,17 +173,9 @@ test('login actions follow the requested hierarchy and omit the permanent inform
   assert.ok(!nodes.some((node) => typeof node.props.children === 'string' && /Sign-in services are not connected/.test(node.props.children)));
 });
 
-test('the Google action includes a decorative official mark and an unambiguous accessible name', () => {
+test('the shared password flow does not advertise unconfigured social authentication', () => {
   const { nodes } = renderLogin();
-  const icon = nodes.find((node) => node.type === 'Image');
-  assert.equal(icon.props.source, 'official-google-g');
-  assert.equal(icon.props.accessible, false);
-  assert.equal(icon.props.importantForAccessibility, 'no-hide-descendants');
-  assert.equal(icon.props.style.width, 20);
-  assert.equal(icon.props.style.height, 20);
-  const asset = fs.readFileSync(path.join(root, 'assets/google-g.png'));
-  assert.equal(asset.subarray(1, 4).toString(), 'PNG');
-  assert.ok(nodes.some((node) => node.type === 'Btn' && node.props.accessibilityLabel === 'Sign in with Google'));
+  assert.ok(!nodes.some((node) => node.type === 'Image' || node.props.accessibilityLabel === 'Sign in with Google'));
 });
 
 test('invalid login retains field errors and never navigates or reports successful authentication', () => {
@@ -189,38 +187,17 @@ test('invalid login retains field errors and never navigates or reports successf
   assert.equal(routes.length, 0);
 });
 
-test('valid login and keyboard submission explain unavailable authentication without navigating', () => {
-  const { nodes, alerts, routes } = renderLogin({ email: 'student@example.com', password: 'secret' });
+test('valid login and keyboard submission call shared auth without direct navigation', () => {
+  const { nodes, authCalls, routes } = renderLogin({ email: 'student@example.com', password: 'secret' });
   nodes.find((node) => node.type === 'Btn' && node.props.children === 'Sign In').props.onPress();
   nodes.find((node) => node.type === 'Input' && node.props.label === 'Password').props.onSubmitEditing();
-  assert.equal(alerts.length, 2);
-  for (const [title, message] of alerts) {
-    assert.equal(title, 'Sign-in unavailable');
-    assert.match(message, /not connected.*not sent or stored/);
-  }
+  assert.deepEqual(authCalls, [['student@example.com', 'secret'], ['student@example.com', 'secret']]);
   assert.equal(routes.length, 0);
 });
 
-test('Google sign-in gives truthful feedback and cannot authenticate or navigate', () => {
-  const { nodes, alerts, routes } = renderLogin();
-  nodes.find((node) => node.type === 'Btn' && node.props.accessibilityLabel === 'Sign in with Google').props.onPress();
-  assert.equal(alerts[0][0], 'Google sign-in unavailable');
-  assert.match(alerts[0][1], /not available/);
-  assert.equal(routes.length, 0);
-});
-
-test('Login preserves Home stack reset, Forgot, Register, and confirmed manager entry callbacks', () => {
-  const { nodes, alerts, routes } = renderLogin();
-  nodes.find((node) => node.type === 'Btn' && node.props.children === 'Continue without signing in').props.onPress();
-  assert.equal(routes[0].action, 'reset');
-  assert.equal(routes[0].route.index, 0);
-  assert.equal(routes[0].route.routes.length, 1);
-  assert.equal(routes[0].route.routes[0].name, 'Main');
-  assert.equal(routes[0].route.routes[0].params.screen, 'Home');
-  for (const label of ['Forgot password', 'Create account', 'Open manager workspace']) {
-    nodes.find((node) => node.type === 'TouchableOpacity' && node.props.accessibilityLabel === label).props.onPress();
-  }
-  assert.deepEqual(routes.slice(1).map((entry) => entry.route), ['Forgot', 'Register']);
-  alerts[0][2].find((button) => button.text === 'Open workspace').onPress();
-  assert.deepEqual(routes.at(-1), { action: 'replace', route: 'Manager' });
+test('Login keeps Forgot and Register callbacks without manager or guest bypasses', () => {
+  const { nodes, routes } = renderLogin();
+  for (const label of ['Forgot password', 'Create account']) nodes.find((node) => node.props.accessibilityLabel === label).props.onPress();
+  assert.deepEqual(routes.map((entry) => entry.route), ['Forgot', 'Register']);
+  assert.ok(!nodes.some((node) => /Continue without|Open manager workspace/.test(node.props.accessibilityLabel ?? node.props.children)));
 });

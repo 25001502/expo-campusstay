@@ -62,13 +62,14 @@ test('authentication feedback accurately describes unavailable external services
 });
 test('manager entry remains separate from student navigation', () => {
   assert.match(auth.AUTH_FEEDBACK.manager, /separate from student navigation/i);
-  assert.match(source('src/screens/LoginScreen.tsx'), /Manager workspace/);
+  assert.doesNotMatch(source('src/screens/LoginScreen.tsx'), /Manager workspace/); assert.match(source('src/screens/AccountScreens.tsx'), /canPreviewManager/);
 });
-test('the app launches directly into the student Home tab without credentials', () => {
+test('H1.1 replaces guest startup with a required account gate', () => {
   const app = source('App.tsx');
-  assert.match(app, /initialRouteName="Main"/);
+  assert.match(app, /initialRouteName=\{auth\.intent === 'manager' \? 'ManagerLogin' : 'Login'\}/);
+  assert.match(app, /auth.phase === 'authenticated'/);
   assert.match(app, /name="Home"/);
-  assert.match(source('src/screens/OnboardingScreen.tsx'), /navigation\.replace\('Main'\)/);
+  assert.match(source('src/screens/OnboardingScreen.tsx'), /navigation\.replace\('Login'\)/);
 });
 test('authentication and onboarding routes remain available', () => {
   const app = source('App.tsx');
@@ -76,12 +77,12 @@ test('authentication and onboarding routes remain available', () => {
     assert.match(app, new RegExp(`name="${route}"`));
   }
 });
-test('all student tabs remain accessible without an authentication guard', () => {
+test('all student tabs remain registered behind the account gate', () => {
   const app = source('App.tsx');
   for (const tab of ['Home', 'Explore', 'Favorites', 'Bookings', 'Messages', 'Profile']) {
     assert.match(app, new RegExp(`name="${tab}"`));
   }
-  assert.doesNotMatch(app, /isAuthenticated|authToken|userSession/);
+  assert.match(app, /auth.phase === 'authenticated' && auth.user/);
 });
 test('manager exit returns to the student app instead of Login', () => {
   const manager = source('src/screens/ManagerScreen.tsx');
@@ -148,13 +149,13 @@ test('Profile notifications action opens Notifications', () => {
   result.render().find((node) => node.props.accessibilityLabel === 'Notifications, 2 unread').props.onPress();
   assert.deepEqual(result.calls, [{ action: 'navigate', args: ['Notifications'] }]);
 });
-test('logout requires confirmation, clears providers, and opens Login', () => {
+test('logout requires confirmation, signs out and clears providers', () => {
   const profile = source('src/screens/ProfileScreen.tsx');
   assert.match(profile, /Alert\.alert/);
   assert.match(profile, /clearApplications\(\)/);
   assert.match(profile, /resetFavorites\(\)/);
   assert.match(profile, /resetCommunication\(\)/);
-  assert.match(profile, /navigation\.replace\('Login'\)/);
+  assert.match(profile, /await auth.account.signOut\(\)/);
 });
 test('communication reset restores samples and removes local messages', () => {
   const changed = communication.sendLocalMessage(state(), 'c1', 'Temporary', '11:00');

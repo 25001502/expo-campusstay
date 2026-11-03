@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { useIsFocused } from '@react-navigation/native';
@@ -9,10 +9,12 @@ import { useApplications } from '../state/ApplicationContext';
 import { useCommunication } from '../state/CommunicationContext';
 import { useFavorites } from '../state/FavoritesContext';
 import { useProfile } from '../state/ProfileContext';
+import { useAuth } from '../state/AuthContext';
 import { Colors, Fonts, Interaction, Radius, Shadow, Spacing, TextColors } from '../theme';
 
 type Props = StudentTabScreenProps<'Profile'>;
 const sections = [
+  { title: 'Become a Manager', route: 'ManagerRequest', icon: 'business-outline', color: '#1976D2', bg: '#E3F2FD' },
   { title: 'Personal Information', route: 'PersonalInformation', icon: 'person-outline', color: '#1976D2', bg: '#E3F2FD' },
   { title: 'My Documents', route: 'MyDocuments', icon: 'document-text-outline', color: '#8E44AD', bg: '#F3E5F5' },
   { title: 'Notifications', route: 'Notifications', icon: 'notifications-outline', color: '#B45309', bg: Colors.amber100 },
@@ -23,6 +25,8 @@ const sections = [
 
 export default function ProfileScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
+  const auth = useAuth();
+  const signingOut = useRef(false);
   const { width, fontScale } = useWindowDimensions();
   const isFocused = useIsFocused();
   const stackStatistics = fontScale >= 1.5 && width - insets.left - insets.right < 600;
@@ -30,7 +34,7 @@ export default function ProfileScreen({ navigation }: Props) {
   const { applications, clearApplications } = useApplications();
   const { favoriteIds, resetFavorites } = useFavorites();
   const { unreadNotificationCount, resetCommunication } = useCommunication();
-  const fullName = profile.fullName.trim();
+  const fullName = profile.fullName.trim() || auth.user?.name || '';
   const statistics = [
     { label: 'Applications', value: applications.length, hint: 'Opens your applications', onPress: () => navigation.navigate('Bookings', { section: 'Applications' }) },
     { label: 'Saved', value: favoriteIds.length, hint: 'Opens your saved properties', onPress: () => navigation.navigate('Favorites') },
@@ -41,12 +45,20 @@ export default function ProfileScreen({ navigation }: Props) {
     'Are you sure you want to log out?',
     [
       { text: 'Cancel', style: 'cancel' },
-      { text: 'Log Out', style: 'destructive', onPress: () => {
-        clearApplications();
-        resetFavorites();
-        resetCommunication();
-        resetProfile();
-        navigation.replace('Login');
+      { text: 'Log Out', style: 'destructive', onPress: async () => {
+        if (signingOut.current || auth.busy) return;
+        signingOut.current = true;
+        try {
+          if (!await auth.account.signOut()) {
+            Alert.alert('Sign-out could not finish', 'CampusStay could not finish signing out. Please try again.');
+            return;
+          }
+          clearApplications();
+          resetFavorites();
+          resetCommunication();
+          resetProfile();
+        } finally { signingOut.current = false; }
+        // The root auth gate removes the protected navigator on sign-out.
       } },
     ],
   );
@@ -74,7 +86,7 @@ export default function ProfileScreen({ navigation }: Props) {
             <Ionicons importantForAccessibility="no-hide-descendants" name="chevron-forward-outline" size={20} color={Colors.slate400} style={styles.chevron} />
           </TouchableOpacity>;
         })}
-        <TouchableOpacity accessibilityRole="button" accessibilityLabel="Log Out" accessibilityHint="Opens a confirmation before logging out and clearing current session data" style={styles.logoutItem} activeOpacity={Interaction.pressedOpacity} onPress={confirmLogout}><Ionicons importantForAccessibility="no-hide-descendants" name="log-out-outline" size={24} color={Colors.red600} /><Text style={styles.logoutLabel}>Log Out</Text></TouchableOpacity>
+        <TouchableOpacity disabled={auth.busy} accessibilityState={{ disabled: auth.busy, busy: auth.busy }} accessibilityRole="button" accessibilityLabel="Log Out" accessibilityHint="Opens a confirmation before logging out and clearing current session data" style={styles.logoutItem} activeOpacity={Interaction.pressedOpacity} onPress={confirmLogout}><Ionicons importantForAccessibility="no-hide-descendants" name="log-out-outline" size={24} color={Colors.red600} /><Text style={styles.logoutLabel}>Log Out</Text></TouchableOpacity>
       </View>
     </ScrollView>
     </View>

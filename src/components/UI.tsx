@@ -88,7 +88,7 @@ export function StatusBadge({ label, variant }: { label: string; variant?: Badge
 
 export function StarRating({ rating }: { rating: number }) {
   return (
-    <Text style={styles.starRating}>★ {rating}</Text>
+    <Text accessibilityLabel={`${rating} out of 5 stars`} style={styles.starRating}>★ {rating}</Text>
   );
 }
 
@@ -106,6 +106,7 @@ export function Btn({
   accessibilityHint,
   selected,
   testID,
+  buttonRef,
 }: {
   children: React.ReactNode;
   onPress?: () => void;
@@ -117,6 +118,7 @@ export function Btn({
   accessibilityHint?: string;
   selected?: boolean;
   testID?: string;
+  buttonRef?: React.Ref<React.ElementRef<typeof TouchableOpacity>>;
 }) {
   const variantStyle: Record<BtnVariant, ViewStyle> = {
     primary:   { backgroundColor: Colors.blue },
@@ -132,6 +134,7 @@ export function Btn({
   };
   return (
     <TouchableOpacity
+      ref={buttonRef}
       onPress={disabled || loading ? undefined : onPress}
       disabled={disabled || loading}
       activeOpacity={Interaction.pressedOpacity}
@@ -460,7 +463,7 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.bodyMed,
   },
   starRating: {
-    color: Colors.amber,
+    color: StatusColors.amber.foreground,
     fontSize: 13,
     fontFamily: Fonts.bodySemi,
   },

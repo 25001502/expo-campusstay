@@ -34,11 +34,11 @@ test('Profile header uses trimmed saved names and a short subtitle without a sig
     assert.doesNotMatch(text(nodes), /No sign-in required/);
   }
 });
-test('Profile header updates from the existing provider and clears after confirmed logout', () => {
+test('Profile header updates from the existing provider and clears after confirmed logout', async () => {
   const result = screen('Profile', { profile: saved() });
   result.profile.fullName = 'Changed Name';
   assert.equal(result.render().find((node) => node.props.accessibilityRole === 'header').props.children, 'Changed Name');
-  find(result.render(), 'Log Out').props.onPress(); result.alerts[0][2][1].onPress();
+  find(result.render(), 'Log Out').props.onPress(); await result.alerts[0][2][1].onPress();
   assert.equal(result.render().find((node) => node.props.accessibilityRole === 'header').props.children, 'Your profile');
   assert.match(text(result.render()), /Add your personal details/);
 });
@@ -139,27 +139,27 @@ test('unsaved back navigation is guarded and dispatches only after discard', () 
 });
 test('documents empty state navigates to Explore and makes no upload claims', () => {
   const result = screen('MyDocuments'); const empty = result.render().find((node) => node.type === 'EmptyState');
-  assert.equal(empty.props.title, 'No document selections'); empty.props.onAction();
+  assert.equal(empty.props.title, 'No application documents'); empty.props.onAction();
   assert.equal(result.calls[0].action, 'popTo'); assert.equal(result.calls[0].args[0], 'Main'); assert.equal(result.calls[0].args[1].screen, 'Explore'); assert.equal(result.calls.length, 1);
-  assert.match(text(result.render()), /No document files.*not uploaded files/);
+  assert.match(text(result.render()), /have not been sent to the residence.*Temporary copies.*no files are verified/);
 });
 test('document groups preserve application identity and do not mix category selections', () => {
   const one = record(), two = record(data.properties[1], 2); two.selectedDocuments = ['funding'];
   const groups = profile.getApplicationDocumentGroups([one, two], data.properties);
   assert.equal(groups[0].applicationId, one.id); assert.equal(groups[1].applicationId, two.id);
   assert.equal(groups[0].categories.find((item) => item.id === 'funding').selected, false);
-  assert.equal(groups[1].categories.find((item) => item.id === 'funding').selected, true);
+  assert.equal(groups[1].categories.find((item) => item.id === 'funding').legacySelection, true);
 });
 test('document action opens the exact application with truthful accessible status', () => {
   const app = record(), result = screen('MyDocuments', { applications: [app] }), nodes = result.render();
-  assert.ok(nodes.some((node) => node.props.accessibilityLabel?.includes('No file uploaded or verified')));
+  assert.match(text(nodes), /Selection recorded.*No file attached/); assert.doesNotMatch(text(nodes), /Attached locally/);
   find(nodes, 'View application').props.onPress();
   assert.equal(result.calls[0].args[1].applicationId, app.id); assert.equal(result.calls[0].args[1].property.id, app.propertyId);
 });
 test('missing property or room preserves categories while withholding invalid navigation', () => {
   for (const patch of [{ propertyId: 'missing' }, { selectedRoomId: 'missing' }]) {
     const result = screen('MyDocuments', { applications: [{ ...record(), ...patch }] }), nodes = result.render();
-    assert.equal(find(nodes, 'View application'), undefined); assert.match(text(nodes), /unavailable/); assert.match(text(nodes), /Category selected/);
+    assert.equal(find(nodes, 'View application'), undefined); assert.match(text(nodes), /unavailable/); assert.match(text(nodes), /Selection recorded/);
   }
 });
 test('missing document selections safely produce unselected category statuses', () => {
@@ -197,14 +197,14 @@ test('a notification whose linked conversation is missing cannot open a broken d
 test('Security offers only a return to the established Profile session controls', () => {
   const result = screen('Security'), nodes = result.render(); find(nodes, 'Return to Profile').props.onPress();
   assert.deepEqual(result.calls, [{ action: 'goBack', args: [] }]); assert.equal(result.alerts.length, 0);
-  assert.equal(nodes.filter((node) => node.type === 'Btn').length, 1); assert.match(text(nodes), /reset emails are unavailable/);
+  assert.equal(nodes.filter((node) => node.type === 'Btn').length, 1); assert.match(text(nodes), /Forgot password.*recovery email/);
 });
-test('logout Cancel is inert and confirmation resets every established owner plus Profile', () => {
+test('logout Cancel is inert and confirmation resets every established owner plus Profile', async () => {
   const result = screen('Profile', { profile: saved() }); find(result.render(), 'Log Out').props.onPress();
   assert.equal(result.alerts[0][1], 'Are you sure you want to log out?'); const actions = result.alerts[0][2];
   assert.equal(actions[0].text, 'Cancel'); assert.equal(actions[0].onPress, undefined); assert.equal(result.resets.length, 0);
-  actions[1].onPress(); assert.deepEqual(result.resets, ['applications', 'favorites', 'communication', 'profile']);
-  assert.deepEqual(result.profile, profile.createEmptyProfile()); assert.deepEqual(result.calls, [{ action: 'replace', args: ['Login'] }]);
+  await actions[1].onPress(); assert.deepEqual(result.resets, ['applications', 'favorites', 'communication', 'profile']);
+  assert.deepEqual(result.profile, profile.createEmptyProfile()); assert.equal(result.authCalls.at(-1).name, 'signOut'); assert.equal(result.calls.length, 0);
 });
 test('FAQ expansion and collapse reveal accurate answers', () => {
   const result = screen('HelpSupport'); const question = profile.PROFILE_FAQS.find((item) => item.id === 'apply');
@@ -229,5 +229,5 @@ for (const name of ['PersonalInformation', 'MyDocuments', 'Security', 'HelpSuppo
 }
 test('new profile modules introduce no network, persistence, or backend clients', () => {
   const files = ['src/profile.ts', 'src/state/ProfileContext.tsx', ...['PersonalInformation', 'MyDocuments', 'Security', 'HelpSupport', 'TermsPrivacy'].map((name) => `src/screens/${name}Screen.tsx`)];
-  for (const file of files) assert.doesNotMatch(fs.readFileSync(path.join(__dirname, '..', file), 'utf8'), /fetch\(|axios|AsyncStorage|SecureStore|supabase|firebase|expo-notifications/i);
+  for (const file of files) assert.doesNotMatch(fs.readFileSync(path.join(__dirname, '..', file), 'utf8'), /fetch\(|axios|AsyncStorage|SecureStore|supabase\.(auth|from|rpc)|from ['"][^'"]*supabase|firebase|expo-notifications/i);
 });

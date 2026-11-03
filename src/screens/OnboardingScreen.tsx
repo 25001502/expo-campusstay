@@ -15,7 +15,7 @@ const slides = [
   {
     image: 'https://images.unsplash.com/photo-1555854877-bab0e564b8d5?w=800&h=1000&fit=crop&auto=format',
     title: 'Find accommodation that fits your student life.',
-    subtitle: 'Discover verified student accommodation near your campus, with everything you need to succeed.',
+    subtitle: 'Discover student accommodation near your campus and compare the listed details.',
   },
   {
     image: 'https://images.unsplash.com/photo-1560185893-a55cbc8c57e8?w=800&h=1000&fit=crop&auto=format',
@@ -41,7 +41,7 @@ export default function OnboardingScreen({ navigation }: Props) {
       flatRef.current?.scrollToIndex({ index: next });
       setIndex(next);
     } else {
-      navigation.replace('Main');
+      navigation.replace('Login');
     }
   };
 
@@ -67,7 +67,7 @@ export default function OnboardingScreen({ navigation }: Props) {
         )}
       />
 
-      <TouchableOpacity accessibilityRole="button" accessibilityLabel="Skip onboarding" style={[styles.skipBtn, { top: insets.top + 12 }]} onPress={() => navigation.replace('Main')}>
+      <TouchableOpacity accessibilityRole="button" accessibilityLabel="Skip onboarding" style={[styles.skipBtn, { top: insets.top + 12 }]} onPress={() => navigation.replace('Login')}>
         <Text style={styles.skipText}>Skip</Text>
       </TouchableOpacity>
 

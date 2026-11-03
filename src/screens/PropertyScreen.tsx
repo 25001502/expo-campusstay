@@ -16,6 +16,9 @@ import { getPropertyAddress, getPropertyImages, getGalleryIndex, getStartingRoom
 import { useCommunication } from '../state/CommunicationContext';
 import { useFavorites } from '../state/FavoritesContext';
 
+import { properties as routeProperties } from '../data';
+import { getRouteProperty } from '../navigation/routeProperty';
+
 type Props = NativeStackScreenProps<RootStackParamList, 'Property'>;
 const TABS = ['About', 'Rooms', 'Reviews'] as const;
 type Tab = typeof TABS[number];
@@ -23,7 +26,10 @@ type DetailState = { propertyId: string; image: number; tab: Tab; roomId: string
 const initialState = (propertyId: string): DetailState => ({ propertyId, image: 0, tab: 'About', roomId: null, examples: false });
 
 export default function PropertyScreen({ navigation, route }: Props) {
-  const { property } = route.params;
+  const suppliedProperty = getRouteProperty(route.params?.property);
+  // A stable initialization value keeps hook order intact on invalid routes.
+  // The fallback is never rendered or offered for an application.
+  const property = suppliedProperty ?? routeProperties[0];
   const insets = useSafeAreaInsets();
   const { width, fontScale } = useWindowDimensions();
   const contentWidth = Math.max(1, width - insets.left - insets.right);
@@ -50,6 +56,8 @@ export default function PropertyScreen({ navigation, route }: Props) {
   const propertyConversation = getConversationForProperty(conversations, property.id);
   const reviews = getPropertyReviewRecords(property.id);
   const galleryHeight = Math.max(260, insets.top + 112);
+  if (!suppliedProperty) return <ScrollView style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom, paddingLeft: insets.left, paddingRight: insets.right }]} contentContainerStyle={{ flexGrow: 1 }}><StatusBar style="dark" /><EmptyState title="Property unavailable" description="This listing is unavailable. Return to Explore to choose another property." actionLabel="Explore accommodation" onAction={() => navigation.popTo('Main', { screen: 'Explore' })} /></ScrollView>;
+
   const updateTab = (tab: Tab) => {
     setState((current) => ({ ...current, tab }));
     scrollRef.current?.scrollTo({ y: positions.current.tabs, animated: false });
@@ -132,7 +140,7 @@ export default function PropertyScreen({ navigation, route }: Props) {
     </ScrollView>
     <View style={[styles.ctaBar, expanded && styles.ctaBarCompact, { paddingBottom: Math.max(insets.bottom, Spacing.md) }]}>
       <Btn variant="secondary" accessibilityLabel={favorite ? `Remove ${property.name} from favorites` : `Add ${property.name} to favorites`} selected={favorite} onPress={() => toggleFavorite(property.id)} style={[styles.saveBtn, expanded && styles.fullButton]}><Ionicons name={favorite ? 'heart' : 'heart-outline'} size={22} color={favorite ? Colors.red600 : Colors.slate900} /><Text style={styles.saveText}>{favorite ? 'Saved' : 'Save'}</Text></Btn>
-      <Btn accessibilityLabel={selectedRoom ? `Continue application for ${getRoomLabel(selectedRoom)}, offering ${selectedRoom.id}` : 'Choose a room to apply'} accessibilityHint={selectedRoom ? 'Opens Apply with your exact selected room' : 'Opens Rooms so you can choose an offering and price'} onPress={() => selectedRoom ? applyRoom(selectedRoom) : showRooms()} style={[styles.applyNowBtn, expanded && styles.fullButton]}>Apply Now →</Btn>
+      <Btn accessibilityLabel={selectedRoom ? `Continue application for ${getRoomLabel(selectedRoom)}, capacity ${selectedRoom.capacity}` : 'Choose a room to apply'} accessibilityHint={selectedRoom ? 'Opens Apply with your exact selected room' : 'Opens Rooms so you can choose an offering and price'} onPress={() => selectedRoom ? applyRoom(selectedRoom) : showRooms()} style={[styles.applyNowBtn, expanded && styles.fullButton]}>Apply Now →</Btn>
     </View>
   </View>;
 }
@@ -142,11 +150,11 @@ export function RoomCategoryCard({ type, rooms, property, selectedRoomId, onSele
     <View style={[styles.roomTop, expanded && styles.roomTopCompact]}><Text accessibilityRole="header" style={styles.roomType}>{type} Room</Text><Badge label={`${getListedRoomCount(rooms)} rooms listed`} variant="blue" /></View>
     {!rooms.length ? <Text style={styles.roomMeta}>No {type.toLowerCase()} room offerings listed.</Text> : rooms.map((room, index) => <View key={room.id} style={styles.offering}>
       {index ? <Divider /> : null}
-      <TouchableOpacity accessibilityRole="radio" accessibilityLabel={`Select ${getRoomLabel(room)}, offering ${room.id}, capacity ${room.capacity}, ${room.bathroom}, ${room.furnished ? 'furnished' : 'unfurnished'}, ${formatMonthlyRent(room.price)}, ${room.available} rooms listed`} accessibilityState={{ checked: selectedRoomId === room.id, disabled: room.available <= 0 }} disabled={room.available <= 0} activeOpacity={0.7} onPress={() => onSelect(room)} style={styles.offeringSelect}>
+      <TouchableOpacity accessibilityRole="radio" testID={`room-option-${room.id}`} accessibilityLabel={`Select ${getRoomLabel(room)}, capacity ${room.capacity}, ${room.bathroom}, ${room.furnished ? 'furnished' : 'unfurnished'}, ${formatMonthlyRent(room.price)}, ${room.available} rooms listed`} accessibilityState={{ checked: selectedRoomId === room.id, disabled: room.available <= 0 }} disabled={room.available <= 0} activeOpacity={0.7} onPress={() => onSelect(room)} style={styles.offeringSelect}>
         <View style={styles.roomCopy}><Text style={styles.offeringTitle}>{room.variant ? `${room.variant} layout` : `${type} occupancy`}{selectedRoomId === room.id ? ' · Selected' : ''}</Text><Text style={styles.roomMeta}>Capacity: {room.capacity} · {room.bathroom} · {room.furnished ? 'Furnished' : 'Unfurnished'}</Text></View><Ionicons name={selectedRoomId === room.id ? 'radio-button-on' : 'radio-button-off'} size={22} color={Colors.blue} importantForAccessibility="no" />
       </TouchableOpacity>
       <Text style={styles.roomMeta}>{room.available} rooms listed</Text>
-      <View style={styles.roomFooter}><Text style={styles.roomPrice}>{formatMonthlyRent(room.price)}</Text><Btn accessibilityLabel={`Apply for ${getRoomLabel(room)} at ${property.name}, offering ${room.id}`} onPress={() => onApply(room)} disabled={room.available <= 0} style={styles.applyBtn}>Apply Now</Btn></View>
+      <View style={styles.roomFooter}><Text style={styles.roomPrice}>{formatMonthlyRent(room.price)}</Text><Btn testID={`apply-room-${room.id}`} accessibilityLabel={`Apply for ${getRoomLabel(room)} at ${property.name}, capacity ${room.capacity}`} onPress={() => onApply(room)} disabled={room.available <= 0} style={styles.applyBtn}>Apply Now</Btn></View>
     </View>)}
   </View>;
 }

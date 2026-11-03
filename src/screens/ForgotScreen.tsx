@@ -1,35 +1,51 @@
-import React, { useState } from 'react';
-import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import React, { useCallback, useRef, useState } from 'react';
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
+import { Feedback } from '../components/Feedback';
+import { KeyboardForm } from '../components/KeyboardForm';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
 import { Btn, Input } from '../components/UI';
-import { AUTH_FEEDBACK, maskEmail, validateForgotPassword } from '../demoAuth';
+import { maskEmail, validateForgotPassword } from '../demoAuth';
+import { useAuth } from '../state/AuthContext';
 import type { RootStackParamList } from '../navigation/types';
 import { Colors, Fonts, Radius, Spacing, TextColors } from '../theme';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Forgot'>;
 
-export default function ForgotScreen({ navigation }: Props) {
+export default function ForgotScreen({ navigation, route }: Props) {
+  const returnTo = route?.params?.returnTo === 'ManagerLogin' ? 'ManagerLogin' : 'Login';
   const insets = useSafeAreaInsets();
+  const auth = useAuth();
+  useFocusEffect(useCallback(() => { auth.account.clearError(); }, [auth.account]));
   const [email, setEmail] = useState('');
   const [error, setError] = useState<string>();
   const [complete, setComplete] = useState(false);
-  const submit = () => {
-    const nextError = validateForgotPassword(email);
+  const [requestedEmail, setRequestedEmail] = useState('');
+  const pending = useRef(false);
+  const submit = async () => {
+    if (pending.current || auth.busy) return;
+    const address = email.trim();
+    const nextError = validateForgotPassword(address);
     setError(nextError);
-    if (!nextError) setComplete(true);
+    if (nextError) return;
+    pending.current = true;
+    try {
+      const ok = returnTo === 'ManagerLogin' ? await auth.account.requestReset(address, 'manager') : await auth.account.requestReset(address);
+      if (ok) { setRequestedEmail(address); setComplete(true); }
+    } finally { pending.current = false; }
   };
   return (
-    <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-      <ScrollView style={styles.container} contentContainerStyle={[styles.scroll, { paddingTop: insets.top + Spacing.md, paddingBottom: insets.bottom + Spacing.xl }]} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets>
-        <TouchableOpacity accessibilityRole="button" accessibilityLabel="Back to login" onPress={() => navigation.goBack()} style={styles.backButton}><Text style={styles.backText}>← Back</Text></TouchableOpacity>
+    <KeyboardForm style={styles.flex} scrollStyle={styles.container} contentContainerStyle={[styles.scroll, { paddingLeft: insets.left + Spacing.xl, paddingRight: insets.right + Spacing.xl, paddingTop: insets.top + Spacing.md, paddingBottom: insets.bottom + Spacing.xl }]}>
+        <TouchableOpacity disabled={auth.busy} accessibilityState={{ disabled: auth.busy }} accessibilityRole="button" accessibilityLabel="Back to login" onPress={() => navigation.goBack()} style={styles.backButton}><Text style={styles.backText}>← Back</Text></TouchableOpacity>
+        <Feedback message={auth.error} />
         {!complete ? (
-          <View style={styles.content}><View style={styles.iconBox}><Text style={styles.icon}>🔔</Text></View><Text accessibilityRole="header" style={styles.title}>Forgot your password?</Text><Text style={styles.subtitle}>Enter your email address to review the reset request. Email delivery is not connected yet.</Text><Input label="Email address" placeholder="student@university.ac.za" value={email} onChangeText={(value) => { setEmail(value); setError(undefined); }} error={error} keyboardType="email-address" autoComplete="email" returnKeyType="done" required style={styles.input} /><Btn onPress={submit}>Review reset request</Btn></View>
+          <View style={styles.content}><View style={styles.iconBox}><Ionicons name="key-outline" size={32} color={Colors.blue} importantForAccessibility="no-hide-descendants" /></View><Text accessibilityRole="header" style={styles.title}>Forgot your password?</Text><Text style={styles.subtitle}>Enter the email address linked to your CampusStay account. We&apos;ll send you a link to reset your password.</Text><Input disabled={auth.busy} label="Email address" placeholder="you@example.com" value={email} onChangeText={(value) => { setEmail(value); setError(undefined); auth.account.clearError(); }} error={error} keyboardType="email-address" autoComplete="email" returnKeyType="done" required style={styles.input} /><Btn loading={auth.busy} disabled={!auth.configured} onPress={() => { void submit(); }}>Send reset link</Btn></View>
         ) : (
-          <View accessibilityRole="alert" style={[styles.content, styles.successContent]}><View style={[styles.iconBox, styles.successBox]}><Text style={styles.icon}>✓</Text></View><Text accessibilityRole="header" style={styles.title}>Request reviewed</Text><Text style={styles.subtitle}>{AUTH_FEEDBACK.forgot}</Text><Text style={styles.masked}>Entered address: {maskEmail(email)}</Text><Btn onPress={() => navigation.popTo('Login')} style={styles.backToLogin}>Back to sign in</Btn></View>
+          <View accessibilityRole="alert" style={[styles.content, styles.successContent]}><View style={[styles.iconBox, styles.successBox]}><Text style={styles.icon}>✓</Text></View><Text accessibilityRole="header" style={styles.title}>Check your email</Text><Text style={styles.subtitle}>If an account is eligible for password recovery, you will receive a reset link. Open the latest email on this device.</Text><Text style={styles.masked}>Entered address: {maskEmail(requestedEmail)}</Text><Btn onPress={() => navigation.popTo(returnTo)} style={styles.backToLogin}>Back to sign in</Btn></View>
         )}
-      </ScrollView>
-    </KeyboardAvoidingView>
+      </KeyboardForm>
   );
 }
 

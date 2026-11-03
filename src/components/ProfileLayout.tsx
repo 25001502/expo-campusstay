@@ -1,20 +1,19 @@
 import React from 'react';
-import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { KeyboardForm } from './KeyboardForm';
 import { ScreenHeader } from './UI';
 import { Colors, Fonts, Radius, Shadow, Spacing, TextColors } from '../theme';
 
-export function ProfileLayout({ title, onBack, children }: { title: string; onBack: () => void; children: React.ReactNode }) {
+export function ProfileLayout({ title, onBack, children, backLabel = 'Back to Profile' }: { title: string; onBack: () => void; children: React.ReactNode; backLabel?: string }) {
   const insets = useSafeAreaInsets();
   return (
-    <KeyboardAvoidingView style={[styles.page, { paddingTop: insets.top, paddingLeft: insets.left, paddingRight: insets.right }]} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-      <StatusBar style="dark" />
-      <ScreenHeader title={title} onBack={onBack} backLabel="Back to Profile" />
-      <ScrollView keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" automaticallyAdjustKeyboardInsets contentContainerStyle={[styles.content, { paddingBottom: Math.max(insets.bottom, Spacing.xxl) }]}>
-        {children}
-      </ScrollView>
-    </KeyboardAvoidingView>
+    <KeyboardForm style={[styles.page, { paddingTop: insets.top, paddingLeft: insets.left, paddingRight: insets.right }]}
+      header={<><StatusBar style="dark" /><ScreenHeader title={title} onBack={onBack} backLabel={backLabel} /></>}
+      contentContainerStyle={[styles.content, { paddingBottom: Math.max(insets.bottom, Spacing.xxl) }]}>
+      {children}
+    </KeyboardForm>
   );
 }
 
