@@ -2,9 +2,10 @@ import type { Property } from './data';
 import { getCurrentRooms } from './rooms';
 
 export function getPropertyAddress(property: Pick<Property, 'address' | 'city'>) {
-  const address = property.address.trim();
-  const city = property.city.trim();
-  return !city || address.toLocaleLowerCase().endsWith(city.toLocaleLowerCase())
+  const address = property.address.split(',').map((part) => part.trim()).filter(Boolean).join(', ').replace(/\s+/g, ' ');
+  const city = property.city.trim().replace(/\s+/g, ' ');
+  const words = ` ${address.toLocaleLowerCase().replace(/[,·]/g, ' ').replace(/\s+/g, ' ')} `;
+  return !city || words.includes(` ${city.toLocaleLowerCase()} `)
     ? address : `${address}${address ? ' · ' : ''}${city}`;
 }
 

@@ -191,10 +191,10 @@ test('booking details preserve the exact fixture association and section on retu
   assert.equal(result.route.params.sampleStatus, 'Completed');
   assert.doesNotMatch(text(nodes), /Manager review|Booking confirmed|Application Progress/);
 });
-test('local application status has accurate milestones and returns to Applications', () => {
+test('local application status has an accurate saved overview and returns to Applications', () => {
   const value = record(); const result = screen('AppStatus', { applications: [value], params: { property: data.properties[0], applicationId: value.id } });
   const nodes = result.render(); assert.match(text(nodes), /No accommodation provider received it/);
-  assert.ok(find(nodes, 'Application Progress')); assert.equal(nodes.filter((node) => node.type === 'StatusBadge')[0].props.label, 'Saved locally');
+  assert.equal(nodes.filter((node) => node.type === 'Text' && node.props.children === 'Application saved').length, 1); assert.equal(find(nodes, 'Provider review'), undefined); assert.equal(nodes.filter((node) => node.type === 'StatusBadge')[0].props.label, 'Saved locally');
   find(nodes, 'My Applications').props.onPress(); assert.equal(result.calls[0].args[1].params.section, 'Applications');
 });
 test('missing or mismatched application IDs show the unavailable state', () => {
@@ -205,16 +205,16 @@ test('missing or mismatched application IDs show the unavailable state', () => {
   const result = screen('AppStatus', { applications: [record()], params: { property: data.properties[1], applicationId: record().id } });
   assert.ok(result.render().find((node) => node.type === 'ErrorState'));
 });
-test('five-step Apply callbacks create one application and synchronize Bookings and Profile', () => {
-  const result = screen('Apply', { params: { property: data.properties[0], selectedRoomId: 'r2' } });
+test('five-step Apply callbacks create one application and synchronize Bookings and Profile', async () => {
+  const result = screen('Apply', { params: { property: data.properties[0], selectedRoomId: 'r2' }, pickerResults: ['id', 'registration', 'identity'].map((name) => ({ canceled: false, assets: [{ name: `${name}.pdf`, mimeType: 'application/pdf', size: 200 }] })) });
   const press = (label) => find(result.render(), label).props.onPress();
   const field = (label, value) => result.render().find((node) => node.type === 'Input' && node.props.label === label).props.onChangeText(value);
-  press('Continue →');
+  await press('Continue →');
   for (const [label, value] of [['Full name', 'Thandi Student'], ['Student number', '123456'], ['Phone number', '0712345678'], ['Email address', 'thandi@example.com']]) field(label, value);
-  press('Continue →');
-  for (const label of ['Student ID', 'Proof of Registration', 'ID / Passport']) press(`${label}, required selection`);
-  press('Continue →'); field('Full name', 'Parent Student'); field('Phone number', '0711111111'); press('Review Application');
-  const save = find(result.render(), 'Save Application'); save.props.onPress(); save.props.onPress();
+  await press('Continue →');
+  for (const label of ['Student ID', 'Proof of Registration', 'ID / Passport']) await press(`Choose file for ${label}`);
+  await press('Continue →'); field('Full name', 'Parent Student'); field('Phone number', '0711111111'); await press('Review Application');
+  const save = find(result.render(), 'Save Application'); await Promise.all([save.props.onPress(), save.props.onPress()]);
   result.route.params = { section: 'Applications' };
   const applicationList = result.renderScreen('src/screens/BookingsScreen.tsx').find((node) => node.type === 'FlatList');
   assert.equal(applicationList.props.data.length, 1);
@@ -397,15 +397,15 @@ test('notification c1 navigation and read state remain connected', () => {
   expand(list(result).props.renderItem({ item }))[0].props.onPress(); assert.equal(result.calls[0].args[1].convId, 'c1');
   assert.equal(result.communication.notifications.find((notification) => notification.id === 'n3').read, true);
 });
-test('logout Cancel preserves applications/messages and confirmed logout restores seed state', () => {
+test('logout Cancel preserves applications/messages and confirmed logout restores seed state', async () => {
   const result = chat({ applications: [record()] }); input(result).props.onChangeText('Temporary'); send(result).props.onPress();
   const logout = () => find(result.renderScreen('src/screens/ProfileScreen.tsx'), 'Log Out').props.onPress();
   logout(); assert.equal(result.alerts[0][2].find((button) => button.text === 'Cancel').onPress, undefined);
   assert.equal(result.communication.messageSequence, 1); assert.ok(find(result.renderScreen('src/screens/ProfileScreen.tsx'), '1 Applications'));
-  logout(); result.alerts[1][2].find((button) => button.text === 'Log Out').onPress();
+  logout(); await result.alerts[1][2].find((button) => button.text === 'Log Out').onPress();
   assert.equal(result.communication.messageSequence, 0); assert.equal(communication.getUnreadMessageCount(result.communication), 2);
   assert.ok(find(result.renderScreen('src/screens/ProfileScreen.tsx'), '0 Applications'));
-  assert.equal(result.calls.at(-1).args[0], 'Login');
+  assert.equal(result.authCalls.at(-1).name, 'signOut');
 });
 test('focused tab status bars do not override the Profile or stack status bar', () => {
   for (const name of ['Bookings', 'Messages']) assert.equal(screen(name, { isFocused: false }).render().some((node) => node.type === 'StatusBar'), false);

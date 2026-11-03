@@ -1,17 +1,11 @@
 import type { Property, Room } from './data';
 import { getCurrentRooms, getHistoricalRoom, getRoomLabel, isRetiredRoom } from './rooms';
+import { DOCUMENT_CATEGORIES, copyAttachments, newLocalId, validLocalDocument, type DocumentAttachments, type DocumentCategoryId, type LocalDocument } from './documents';
+import { emptyFunding, validateFunding, type FundingDeclaration } from './funding';
+export { DOCUMENT_CATEGORIES, type DocumentCategoryId } from './documents';
 
 export const APPLICATION_STEPS = ['Room', 'Personal', 'Documents', 'Emergency', 'Review'] as const;
 export type ApplicationStep = 0 | 1 | 2 | 3 | 4;
-
-export const DOCUMENT_CATEGORIES = [
-  { id: 'student-id', label: 'Student ID', required: true },
-  { id: 'registration', label: 'Proof of Registration', required: true },
-  { id: 'identity', label: 'ID / Passport', required: true },
-  { id: 'funding', label: 'Proof of Funding', required: false },
-] as const;
-
-export type DocumentCategoryId = typeof DOCUMENT_CATEGORIES[number]['id'];
 
 export type PersonalInformation = {
   fullName: string;
@@ -28,10 +22,13 @@ export type EmergencyContact = {
 };
 
 export type ApplicationDraft = {
+  draftId: string;
   propertyId: string;
   selectedRoomId: string | null;
   personal: PersonalInformation;
   selectedDocuments: DocumentCategoryId[];
+  attachments: DocumentAttachments;
+  funding: FundingDeclaration;
   emergency: EmergencyContact;
   currentStep: ApplicationStep;
 };
@@ -40,12 +37,15 @@ export type ApplicationErrors = Partial<Record<
   | 'selectedRoomId'
   | keyof PersonalInformation
   | 'documents'
+  | 'funding'
   | `document.${DocumentCategoryId}`
   | `emergency.${keyof EmergencyContact}`,
   string
 >>;
 
-export type SubmittedApplication = Omit<ApplicationDraft, 'currentStep'> & {
+export type SubmittedApplication = Omit<ApplicationDraft, 'currentStep' | 'draftId' | 'attachments' | 'funding'> & {
+  attachments?: DocumentAttachments;
+  funding?: FundingDeclaration;
   id: string;
   submittedAt: string;
   status: 'saved-locally';
@@ -56,7 +56,8 @@ export type ApplicationReview = {
   roomType: string;
   roomPrice: number;
   personal: PersonalInformation;
-  documents: { id: DocumentCategoryId; label: string; required: boolean; selected: boolean }[];
+  documents: { id: DocumentCategoryId; label: string; required: boolean; selected: boolean; attachment?: LocalDocument; legacySelection: boolean }[];
+  funding: FundingDeclaration;
   emergency: EmergencyContact;
 };
 
@@ -69,6 +70,7 @@ export type SubmittedApplicationSummary = {
   submittedAt: string;
   statusLabel: 'Saved locally';
   isBooking: false;
+  funding: FundingDeclaration;
 };
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -86,6 +88,7 @@ export function createApplicationDraft(property: Property, selectedRoomId?: stri
     : undefined;
 
   return {
+    draftId: newLocalId('draft'),
     propertyId: property.id,
     selectedRoomId: selectedRoom?.id ?? null,
     personal: {
@@ -96,6 +99,8 @@ export function createApplicationDraft(property: Property, selectedRoomId?: stri
       email: '',
     },
     selectedDocuments: [],
+    attachments: {},
+    funding: emptyFunding(),
     emergency: { fullName: '', relationship: 'Parent', phone: '' },
     currentStep: 0,
   };
@@ -130,13 +135,15 @@ export function validateApplicationStep(
   }
 
   if (step === 2) {
+    const fundingError = validateFunding(draft.funding);
+    if (fundingError) errors.funding = fundingError;
     const missing = DOCUMENT_CATEGORIES.filter(
-      (category) => category.required && !draft.selectedDocuments.includes(category.id),
+      (category) => category.required && !validLocalDocument(draft.attachments?.[category.id], category.id),
     );
     if (missing.length) {
-      errors.documents = `Select all required document categories (${missing.length} remaining).`;
+      errors.documents = `Attach all required documents (${missing.length} remaining).`;
       missing.forEach((category) => {
-        errors[`document.${category.id}`] = `${category.label} is required.`;
+        errors[`document.${category.id}`] = `Choose a valid file for ${category.label}.`;
       });
     }
   }
@@ -163,7 +170,7 @@ export function validateApplication(draft: ApplicationDraft, property: Property)
 export function firstInvalidApplicationStep(errors: ApplicationErrors): ApplicationStep | undefined {
   if (errors.selectedRoomId) return 0;
   if (errors.fullName || errors.studentNumber || errors.universityId || errors.phone || errors.email) return 1;
-  if (errors.documents || Object.keys(errors).some((key) => key.startsWith('document.'))) return 2;
+  if (errors.funding || errors.documents || Object.keys(errors).some((key) => key.startsWith('document.'))) return 2;
   if (Object.keys(errors).some((key) => key.startsWith('emergency.'))) return 3;
   return undefined;
 }
@@ -171,6 +178,8 @@ export function firstInvalidApplicationStep(errors: ApplicationErrors): Applicat
 export function normalizeApplicationDraft(draft: ApplicationDraft): ApplicationDraft {
   return {
     ...draft,
+    attachments: copyAttachments(draft.attachments),
+    funding: { ...(draft.funding ?? emptyFunding()) },
     personal: {
       ...draft.personal,
       fullName: draft.personal.fullName.trim(),
@@ -197,8 +206,11 @@ export function buildApplicationReview(draft: ApplicationDraft, property: Proper
     personal: { ...draft.personal },
     documents: DOCUMENT_CATEGORIES.map((category) => ({
       ...category,
-      selected: draft.selectedDocuments.includes(category.id),
+      selected: validLocalDocument(draft.attachments?.[category.id], category.id),
+      attachment: copyAttachments(draft.attachments)[category.id],
+      legacySelection: draft.selectedDocuments?.includes(category.id) ?? false,
     })),
+    funding: { ...(draft.funding ?? emptyFunding()) },
     emergency: { ...draft.emergency },
   };
 }
@@ -223,7 +235,9 @@ export function createSubmittedApplication(
     propertyId: normalized.propertyId,
     selectedRoomId: normalized.selectedRoomId,
     personal: normalized.personal,
-    selectedDocuments: [...normalized.selectedDocuments],
+    selectedDocuments: [...(normalized.selectedDocuments ?? [])],
+    attachments: copyAttachments(normalized.attachments),
+    funding: { ...normalized.funding },
     emergency: normalized.emergency,
     submittedAt,
     status: 'saved-locally',
@@ -255,6 +269,7 @@ export function getSubmittedApplicationSummary(
     submittedAt: application.submittedAt,
     statusLabel: 'Saved locally',
     isBooking: false,
+    funding: { ...(application.funding ?? emptyFunding()) },
   };
 }
 

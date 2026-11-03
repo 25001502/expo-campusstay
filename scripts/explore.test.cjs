@@ -60,11 +60,12 @@ test('price defaults and accessible bounds match the existing slider contract', 
   assert.equal(value.accessibilityLabel, 'Maximum monthly price'); assert.equal(value.accessibilityValue.now, 10000);
   assert.equal(value.accessibilityValue.text, 'R10,000 per month'); assert.match(copy(header(result)), /Maximum price: R10,000\/month/);
 });
-test('price adjustment immediately filters listing prices rather than cheaper room prices', () => {
+test('price adjustment filters corrected starting rents and keeps the displayed limit accurate', () => {
   const result = screen(); expand(result); slider(result).props.onValueChange(4000);
-  assert.deepEqual(matches(result), ['p1', 'p5']); assert.equal(slider(result).props.accessibilityValue.now, 4000);
+  assert.deepEqual(matches(result), ['p1', 'p3', 'p4', 'p5']); assert.equal(slider(result).props.accessibilityValue.now, 4000);
   assert.match(copy(header(result)), /Maximum price: R4,000\/month/);
-  assert.ok(data.properties.some((property) => property.price > 4000 && property.rooms.some((room) => room.price <= 4000)));
+  assert.ok(list(result).props.data.every((property) => property.price <= 4000));
+  assert.ok(!list(result).props.data.some((property) => property.id === 'p2'));
 });
 test('slider bounds clamp and snap finite values, ignoring invalid callbacks', () => {
   const result = screen(); expand(result);
@@ -150,8 +151,8 @@ test('removing a context chip clears only its own route parameter', () => {
   named(header(result), 'Remove Wi-Fi filter').props.onPress(); assert.equal(result.route.params.quickFilter, undefined);
 });
 for (const [label, expected] of [
-  ['Recommended', ['p1', 'p2', 'p3', 'p4', 'p5']], ['Price: Low', ['p1', 'p5', 'p3', 'p2', 'p4']],
-  ['Price: High', ['p4', 'p2', 'p3', 'p5', 'p1']], ['Highest Rated', ['p3', 'p1', 'p4', 'p2', 'p5']], ['Nearest', ['p4', 'p3', 'p1', 'p2', 'p5']],
+  ['Recommended', ['p1', 'p2', 'p3', 'p4', 'p5']], ['Price: Low', ['p1', 'p5', 'p3', 'p4', 'p2']],
+  ['Price: High', ['p2', 'p4', 'p3', 'p5', 'p1']], ['Highest Rated', ['p3', 'p1', 'p4', 'p2', 'p5']], ['Nearest', ['p4', 'p3', 'p1', 'p2', 'p5']],
 ]) test(`${label} sorting uses actual data and preserves accurate counts`, () => {
   const result = screen(); sort(result, label); assert.deepEqual(matches(result), expected);
   assert.equal(named(header(result), `Sort by ${label}`).props.accessibilityState.selected, true);
@@ -261,5 +262,5 @@ test('Explore owns status-bar contrast only while focused and student/manager ro
   assert.equal(screen({ isFocused: false }).render().find((node) => node.type === 'StatusBar'), undefined);
   const app = fs.readFileSync(path.join(__dirname, '../App.tsx'), 'utf8');
   assert.deepEqual([...app.matchAll(/<Tab.Screen\s+name="([^"]+)"/g)].map((match) => match[1]), ['Home', 'Explore', 'Favorites', 'Bookings', 'Messages', 'Profile']);
-  assert.match(app, /initialRouteName="Main"/); assert.match(app, /name="Manager"/);
+  assert.match(app, /auth.phase === 'authenticated'/); assert.match(app, /name="Manager"/);
 });

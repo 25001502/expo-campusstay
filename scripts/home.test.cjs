@@ -54,12 +54,12 @@ test('editing a previously saved name refreshes the Home first name and initials
   nodes = result.render(); assert.match(text(nodes), /Hey, Élodie!/);
   assert.match(text(elements(named(nodes, 'Open profile'))), /ÉM/); assert.doesNotMatch(text(nodes), /Thandi/);
 });
-test('confirmed Profile logout clears Home identity while cancellation preserves it', () => {
+test('confirmed Profile logout clears Home identity while cancellation preserves it', async () => {
   const result = screen({ profile: { ...profile.createEmptyProfile(), fullName: 'Thandi Student' } });
   named(result.renderScreen('src/screens/ProfileScreen.tsx'), 'Log Out').props.onPress();
   const actions = result.alerts[0][2]; assert.equal(actions[0].onPress, undefined);
   assert.match(text(result.render()), /Hey, Thandi!/);
-  actions[1].onPress(); assert.equal(result.calls.at(-1).args[0], 'Login');
+  await actions[1].onPress(); assert.equal(result.authCalls.at(-1).name, 'signOut');
   assert.match(text(result.render()), /Hey there!/); assert.doesNotMatch(text(result.render()), /Thandi|TS/);
 });
 test('Home notification shortcut and indicator follow individual and all-read state shared with Profile', () => {
@@ -240,5 +240,9 @@ test('Home honors lateral safe areas and preserves the established six-tab order
   assert.equal(content.paddingLeft, 30); assert.equal(content.paddingRight, 20); assert.equal(content.paddingBottom, 66);
   const app = source('App.tsx'), tabs = [...app.matchAll(/<Tab.Screen\s+name="([^"]+)"/g)].map((match) => match[1]);
   assert.deepEqual(tabs, ['Home', 'Explore', 'Favorites', 'Bookings', 'Messages', 'Profile']);
-  assert.match(app, /numberOfLines=\{2\}/); assert.match(app, /labelWrapSpace/);
+  assert.match(app, /numberOfLines=\{labelLines\}/);
+  assert.match(app, /const labelLines = .*\? 2 : 1/);
+  assert.match(app, /labelScale/);
+  assert.match(app, /width - 2 \* Math\.max\(insets\.left, insets\.right\)/);
+  assert.match(app, /textBreakStrategy="balanced"/);
 });

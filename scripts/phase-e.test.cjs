@@ -30,9 +30,9 @@ test('dashboard metrics derive from the manager state', () => {
   assert.equal(metrics.availableRooms, state.properties.flatMap((property) => property.rooms).reduce((sum, room) => sum + room.available, 0));
   assert.equal(metrics.activeTenants, state.tenants.length);
 });
-test('zero-property metrics are safe and zero', () => {
+test('zero-property counts are safe; physical occupancy remains unrecorded', () => {
   const metrics = manager.getManagerMetrics({ properties: [], applications: [], tenants: [] });
-  assert.deepEqual(JSON.parse(JSON.stringify(metrics)), { totalProperties: 0, availableRooms: 0, occupiedRooms: 0, awaitingReview: 0, activeTenants: 0, occupancyRate: 0 });
+  assert.deepEqual(JSON.parse(JSON.stringify(metrics)), { totalProperties: 0, availableRooms: 0, occupiedRooms: null, awaitingReview: 0, activeTenants: 0, occupancyRate: null });
 });
 test('property search matches names, cities, and amenities', () => {
   const properties = initial().properties;
@@ -103,9 +103,12 @@ test('tenant filtering preserves property association', () => {
   const state = initial(); const result = manager.filterManagerTenants(state.tenants, state.properties.map((property) => property.id), '', 'p2');
   assert.ok(result.length); assert.ok(result.every((tenant) => tenant.propertyId === 'p2'));
 });
-test('analytics occupancy matches dashboard occupancy', () => {
-  const state = initial(); const rows = manager.getPropertyAnalytics(state); const occupied = rows.reduce((sum, row) => sum + row.occupied, 0); const available = rows.reduce((sum, row) => sum + row.available, 0);
-  assert.equal(manager.getManagerMetrics(state).occupancyRate, Math.round((occupied / (occupied + available)) * 100));
+test('analytics and dashboard distinguish listed rooms, tenant records and unknown physical occupancy', () => {
+  const state = initial(); const rows = manager.getPropertyAnalytics(state); const metrics = manager.getManagerMetrics(state);
+  assert.equal(rows.reduce((sum, row) => sum + row.activeTenants, 0), metrics.activeTenants);
+  assert.equal(rows.reduce((sum, row) => sum + row.available, 0), metrics.availableRooms);
+  assert.equal(metrics.occupancyRate, null);
+  assert.ok(rows.every((row) => row.occupied === null && row.occupancyRate === null));
 });
 test('analytics handles missing property and tenant data', () => assert.deepEqual(manager.getPropertyAnalytics({ properties: [], tenants: [] }), []));
 test('manager state reset restores a predictable fresh state', () => {
@@ -132,15 +135,65 @@ test('logout cancellation has no state-changing callback', () => {
 test('confirmed logout resets applications, favorites, messages, and notifications', () => {
   const profile = source('src/screens/ProfileScreen.tsx'); for (const call of ['clearApplications()', 'resetFavorites()', 'resetCommunication()']) assert.match(profile, new RegExp(call.replace(/[()]/g, '\\$&')));
 });
-test('confirmed logout replaces the student stack with Login', () => assert.match(source('src/screens/ProfileScreen.tsx'), /navigation\.replace\('Login'\)/));
-test('Continue without signing in resets navigation to student Home', () => {
-  const login = source('src/screens/LoginScreen.tsx'); assert.match(login, /Continue without signing in/); assert.match(login, /name: 'Main', params: \{ screen: 'Home' \}/);
+test('confirmed logout signs out through the account gate', () => assert.match(source('src/screens/ProfileScreen.tsx'), /await auth.account.signOut\(\)/));
+
+test('Login has no credential-free continuation', () => {
+  const login = source('src/screens/LoginScreen.tsx'); assert.doesNotMatch(login, /Continue without signing in|navigation\.reset/);
 });
-test('fresh startup still opens Main directly', () => assert.match(source('App.tsx'), /initialRouteName="Main"/));
-test('logout and continuation remove stale navigation history', () => {
-  assert.match(source('src/screens/ProfileScreen.tsx'), /navigation\.replace\('Login'\)/);
-  assert.match(source('src/screens/LoginScreen.tsx'), /navigation\.reset/);
+
+test('fresh startup registers the signed-out Login navigator', () => assert.match(source('App.tsx'), /initialRouteName=\{auth\.intent === 'manager' \? 'ManagerLogin' : 'Login'\}/));
+
+test('auth transitions replace the navigator instead of retaining stale public routes', () => {
+  assert.match(source('App.tsx'), /auth.phase === 'authenticated' && auth.user/);
+  assert.match(source('App.tsx'), /key=\{auth.user.id\}/);
 });
+
 test('manager implementation introduces no network or persistence APIs', () => {
   const combined = source('src/manager.ts') + source('src/screens/ManagerScreen.tsx'); assert.doesNotMatch(combined, /fetch\(|axios|AsyncStorage|SecureStore|supabase|firebase/i);
+});
+
+function dirtyManagerForm() {
+  const { harness, elements } = require('./profile-harness.cjs');
+  const screen = harness('src/screens/ManagerScreen.tsx');
+  screen.render().find((node) => node.props.accessibilityLabel === 'Properties').props.onPress();
+  let page = screen.render().find((node) => typeof node.type === 'function' && node.type.name === 'PropertiesPage');
+  elements(page.type(page.props)).find((node) => node.type === 'Btn' && node.props.children === 'Add Property').props.onPress();
+  page = screen.render().find((node) => typeof node.type === 'function' && node.type.name === 'PropertyForm');
+  elements(page.type(page.props)).find((node) => node.type === 'Input' && node.props.label === 'Property name').props.onChangeText('Synthetic unsaved property');
+  screen.render();
+  return screen;
+}
+test('manager tab changes keep dirty property edits until explicit discard', () => {
+  const screen = dirtyManagerForm();
+  screen.render().find((node) => node.props.accessibilityLabel === 'Applications').props.onPress();
+  assert.equal(screen.alerts.at(-1)[0], 'Discard unsaved changes?');
+  const form = screen.render().find((node) => typeof node.type === 'function' && node.type.name === 'PropertyForm');
+  assert.equal(form.props.fields.name, 'Synthetic unsaved property');
+  assert.equal(screen.alerts.at(-1)[2][0].text, 'Keep editing');
+  screen.alerts.at(-1)[2].find((button) => button.text === 'Discard').onPress();
+  const nodes = screen.render();
+  assert.ok(!nodes.some((node) => typeof node.type === 'function' && node.type.name === 'PropertyForm'));
+  assert.ok(nodes.some((node) => typeof node.type === 'function' && node.type.name === 'ApplicationsPage'));
+});
+test('manager root removal protects dirty edits and dispatches only the confirmed action', () => {
+  const screen = dirtyManagerForm(), action = { type: 'REPLACE', payload: { name: 'Main' } };
+  assert.equal(screen.removal.enabled, true);
+  screen.removal.callback({ data: { action } });
+  assert.equal(screen.calls.length, 0);
+  assert.equal(screen.render().find((node) => typeof node.type === 'function' && node.type.name === 'PropertyForm').props.fields.name, 'Synthetic unsaved property');
+  screen.alerts.at(-1)[2].find((button) => button.text === 'Discard').onPress();
+  assert.equal(screen.calls.at(-1).action, 'dispatch');
+  assert.equal(screen.calls.at(-1).args[0], action);
+});
+test('an untouched manager property form still permits ordinary tab navigation without a dialog', () => {
+  const { harness, elements } = require('./profile-harness.cjs');
+  const screen = harness('src/screens/ManagerScreen.tsx');
+  screen.render().find((node) => node.props.accessibilityLabel === 'Properties').props.onPress();
+  const page = screen.render().find((node) => typeof node.type === 'function' && node.type.name === 'PropertiesPage');
+  elements(page.type(page.props)).find((node) => node.type === 'Btn' && node.props.children === 'Add Property').props.onPress();
+  assert.equal(screen.render().find((node) => typeof node.type === 'function' && node.type.name === 'PropertyForm').props.fields.name, '');
+  assert.equal(screen.removal.enabled, false);
+  screen.render().find((node) => node.props.accessibilityLabel === 'Applications').props.onPress();
+  assert.equal(screen.alerts.length, 0);
+  assert.ok(screen.render().some((node) => typeof node.type === 'function' && node.type.name === 'ApplicationsPage'));
 });

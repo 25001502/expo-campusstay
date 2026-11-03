@@ -1,0 +1,8 @@
+# Deployment configuration only; this file does not link to a remote project.
+[functions.manager-verification-finalize]
+enabled = true
+entrypoint = "./functions/manager-verification-finalize/index.ts"
+import_map = "./functions/deno.jsonc"
+# Keep the platform JWT check. The handler additionally validates the caller
+# with Auth getUser before any owner-scoped read or privileged call.
+verify_jwt = true

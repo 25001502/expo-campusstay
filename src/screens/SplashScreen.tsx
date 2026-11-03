@@ -19,7 +19,7 @@ export default function SplashScreen({ navigation }: Props) {
     ]);
     animation.start();
 
-    const timer = setTimeout(() => navigation.replace('Main'), 2400);
+    const timer = setTimeout(() => navigation.replace('Login'), 2400);
     return () => {
       clearTimeout(timer);
       animation.stop();

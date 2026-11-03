@@ -32,6 +32,15 @@ export function RemoteImage({
   const [failed, setFailed] = useState(!source);
   const [attempt, setAttempt] = useState(0);
 
+  const sourceKey = JSON.stringify(source);
+  const [previousSource, setPreviousSource] = useState(sourceKey);
+  if (sourceKey !== previousSource) {
+    setPreviousSource(sourceKey);
+    setFailed(!source);
+    setLoading(!!source);
+    setAttempt(0);
+  }
+
   const retry = () => {
     if (!source) return;
     setFailed(false);
@@ -43,7 +52,7 @@ export function RemoteImage({
     <View style={[styles.container, aspectRatio ? { aspectRatio } : null, style]}>
       {source && !failed ? (
         <Image
-          key={attempt}
+          key={`${sourceKey}:${attempt}`}
           source={source}
           style={StyleSheet.absoluteFill}
           contentFit={contentFit}

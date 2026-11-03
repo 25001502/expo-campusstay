@@ -38,7 +38,7 @@ function validDraft() {
     phone: '+27 71 234 5678',
     email: 'alex@example.com',
   };
-  draft.selectedDocuments = ['student-id', 'registration', 'identity'];
+  draft.attachments = Object.fromEntries(['student-id', 'registration', 'identity'].map((category) => [category, { id: `file-${category}`, category, name: `${category}.pdf`, mimeType: 'application/pdf', size: 200, state: 'attached-local' }]));
   draft.emergency = { fullName: 'Taylor Student', relationship: 'Parent', phone: '+27 82 555 0101' };
   return draft;
 }
@@ -85,7 +85,7 @@ test('phone validation accepts flexible international formatting', () => {
 
 test('required document categories block progression when missing', () => {
   const draft = validDraft();
-  draft.selectedDocuments = ['student-id'];
+  delete draft.attachments.registration; delete draft.attachments.identity;
   assert.ok(application.validateApplicationStep(2, draft, property).documents);
 });
 

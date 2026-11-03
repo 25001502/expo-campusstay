@@ -57,13 +57,13 @@ test('Property Rooms has only the Single and Shared offerings, with no Studio co
   const result=screen(); tab(result,'Rooms'); const nodes=expandedNodes(result);
   assert.deepEqual(nodes.filter((node)=>node.type==='Text' && node.props.accessibilityRole==='header').map((node)=>strings(node.props.children)), ['Campus View Residence','Single Room','Shared Room']);
   assert.equal(nodes.filter((node)=>node.props.accessibilityRole==='radio').length,2);
-  for(const id of ['r1','r2']) assert.ok(nodes.some((node)=>node.type==='Btn' && node.props.accessibilityLabel.endsWith(`offering ${id}`)));
+  for(const id of ['r1','r2']) assert.ok(nodes.some((node)=>node.type==='Btn' && node.props.testID === `apply-room-${id}`));
   assert.equal(nodes.filter((node)=>node.type==='Btn' && node.props.accessibilityLabel?.startsWith('Apply for ')).length,2);
   assert.doesNotMatch(text(nodes), /Studio|4[\s,]?800|Private Room|Apartment Room|\bleft\b|\bFull\b/);
 });
 for(const id of ['r1','r2']) test(`room-specific Apply retains exact ${id} selection and price through review/status`,()=>{
   const result=screen(); tab(result,'Rooms');
-  expandedNodes(result).find((node)=>node.type==='Btn' && node.props.accessibilityLabel.endsWith(`offering ${id}`)).props.onPress();
+  expandedNodes(result).find((node)=>node.type==='Btn' && node.props.testID === `apply-room-${id}`).props.onPress();
   const args=result.calls.at(-1).args; assert.equal(args[0],'Apply'); assert.equal(args[1].property.id,'p1'); assert.equal(args[1].selectedRoomId,id);
   const draft=application.createApplicationDraft(args[1].property,args[1].selectedRoomId);
   assert.equal(draft.selectedRoomId,id); assert.equal(application.buildApplicationReview(draft,property).roomPrice,fixture('p1',id).price);
@@ -71,7 +71,7 @@ for(const id of ['r1','r2']) test(`room-specific Apply retains exact ${id} selec
   const summary=application.getSubmittedApplicationSummary(saved,property);
   assert.equal(summary.roomType,rooms.getRoomLabel(fixture('p1',id))); assert.equal(summary.roomPrice,fixture('p1',id).price); assert.equal(summary.isBooking,false);
   result.route.params=args[1]; const applyNodes=result.renderScreen('src/screens/ApplyScreen.tsx');
-  assert.ok(applyNodes.find((node)=>node.props.accessibilityRole==='radio' && node.props.accessibilityState.selected).props.accessibilityLabel.includes(`offering ${id}`));
+  assert.ok(applyNodes.find((node)=>node.props.accessibilityRole==='radio' && node.props.accessibilityState.selected).props.testID === `room-option-${id}`);
 });
 test('sticky Apply requires an intentional room choice and scrolls to Rooms',()=>{
   const result=screen(); const calls=[];
@@ -83,15 +83,15 @@ test('sticky Apply requires an intentional room choice and scrolls to Rooms',()=
 });
 test('selection survives all property tabs and sticky Apply continues the exact Shared offering',()=>{
   const result=screen(); tab(result,'Rooms');
-  expandedNodes(result).find((node)=>node.props.accessibilityRole==='radio' && node.props.accessibilityLabel.includes('offering r2')).props.onPress();
+  expandedNodes(result).find((node)=>node.props.accessibilityRole==='radio' && node.props.testID === 'room-option-r2').props.onPress();
   tab(result,'Reviews'); tab(result,'About');
-  find(result.render(),'Continue application for Shared Room, offering r2').props.onPress();
+  find(result.render(),'Continue application for Shared Room, capacity 2').props.onPress();
   assert.equal(result.calls.at(-1).args[1].selectedRoomId,'r2');
 });
 test('zero-listed offerings cannot be selected or applied to and never substitute another ID',()=>{
   const item={...property,rooms:property.rooms.map((room)=>({...room,available:0}))}; const result=screen({params:{property:item}}); tab(result,'Rooms');
   for(const node of expandedNodes(result).filter((node)=>node.props.accessibilityRole==='radio' || node.type==='Btn' && node.props.accessibilityLabel?.startsWith('Apply for'))) assert.equal(node.props.disabled,true);
-  expandedNodes(result).find((node)=>node.type==='Btn' && node.props.accessibilityLabel?.endsWith('offering r1')).props.onPress();
+  expandedNodes(result).find((node)=>node.type==='Btn' && node.props.testID === 'apply-room-r1').props.onPress();
   assert.equal(result.calls.length,0); assert.match(text(result.render()),/Room prices unavailable/);
 });
 test('favorites use the existing shared owner across both controls and tab changes',()=>{
@@ -260,4 +260,58 @@ test('shared Home/Explore/Favorites property cards expose only current starting 
     const labels=nodes.filter((node)=>node.type==='Badge').map((node)=>node.props.label).join(' ');
     assert.match(text(nodes)+' '+labels,/10 rooms listed/);
   }
+});
+
+// Full frontend audit regressions: run actual screen callbacks, not source matching.
+for (const name of ['Property', 'Apply', 'AppStatus']) {
+  test(`${name} rejects missing, unknown and malformed property routes without exposing fallback actions`, () => {
+    for (const params of [undefined, {}, { property: { ...property, id: 'gone' } }, { property: { id: 'p1' } }]) {
+      const result = harness(`src/screens/${name}Screen.tsx`, { params });
+      const nodes = result.render();
+      assert.ok(nodes.some((node) => ['EmptyState', 'ErrorState'].includes(node.type)));
+      assert.equal(nodes.some((node) => node.type === 'KeyboardForm'), false);
+      assert.equal(nodes.some((node) => node.props.accessibilityLabel?.startsWith('Apply for')), false);
+    }
+  });
+}
+test('invalid listing routes recover to Explore; invalid status routes recover to Bookings', () => {
+  for (const name of ['Property','Apply','AppStatus']) {
+    const result = harness(`src/screens/${name}Screen.tsx`);
+    const state = result.render().find((node) => ['EmptyState','ErrorState'].includes(node.type));
+    (state.props.onAction ?? state.props.onRetry)();
+    assert.equal(result.calls.at(-1).action, 'popTo');
+    assert.equal(result.calls.at(-1).args[0], 'Main');
+    assert.equal(result.calls.at(-1).args[1].screen, name === 'AppStatus' ? 'Bookings' : 'Explore');
+  }
+});
+test('funding editor handles a missing parameter and stale application without permitting save', () => {
+  for (const params of [undefined, {}, { applicationId: 'gone' }]) {
+    const result = harness('src/screens/UpdateFundingScreen.tsx', { params });
+    const nodes = result.render();
+    assert.ok(nodes.some((node) => node.type === 'ErrorState'));
+    assert.equal(nodes.some((node) => node.type === 'Btn' && node.props.children === 'Save funding update'), false);
+  }
+});
+test('every current listing price and count match its eligible room inventory', () => {
+  for (const item of data.properties) {
+    assert.equal(item.price, details.getStartingRoomPrice(item), item.id);
+    assert.equal(item.available, rooms.getListedRoomCount(rooms.getCurrentRooms(item)), item.id);
+  }
+  const byPrice = discovery.filterAndSortProperties(data.properties, { ...discovery.createDefaultDiscoveryFilters(), sort: 'price-low' });
+  assert.deepEqual(Array.from(byPrice, (item) => item.id), ['p1','p5','p3','p4','p2']);
+  const affordable = discovery.filterAndSortProperties(data.properties, { ...discovery.createDefaultDiscoveryFilters(), maximumPrice: 3000 });
+  assert.deepEqual(Array.from(affordable, (item) => item.id), ['p1','p3','p5']);
+});
+test('changing an Apply property route cannot save the previous property draft', () => {
+  const result = harness('src/screens/ApplyScreen.tsx', { params: { property, selectedRoomId: 'r1' } });
+  assert.ok(result.render().some((node) => node.type === 'KeyboardForm'));
+  result.route.params = { property: data.properties[1], selectedRoomId: 'r1' };
+  assert.ok(result.render().some((node) => node.type === 'EmptyState'));
+  assert.equal(result.applications.length, 0);
+});
+
+test('onboarding describes listings without asserting unsupported verification', () => {
+  const result = harness('src/screens/OnboardingScreen.tsx');
+  assert.match(text(result.render()), /Discover student accommodation near your campus/);
+  assert.doesNotMatch(text(result.render()), /verified student accommodation/i);
 });

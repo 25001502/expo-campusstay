@@ -1,4 +1,5 @@
-import { DOCUMENT_CATEGORIES, isValidPhone, type PersonalInformation, type SubmittedApplication } from './application';
+import { DOCUMENT_CATEGORIES, getSubmittedApplicationSummary, isValidPhone, type PersonalInformation, type SubmittedApplication } from './application';
+import { copyAttachments, validLocalDocument } from './documents';
 import { universities, type Property } from './data';
 
 export type ProfileDetails = PersonalInformation;
@@ -44,8 +45,12 @@ export function getApplicationDocumentGroups(applications: readonly SubmittedApp
     return {
       applicationId: application.id,
       property,
-      canOpenApplication: !!property?.rooms.some((room) => room.id === application.selectedRoomId),
-      categories: DOCUMENT_CATEGORIES.map((category) => ({ ...category, selected: application.selectedDocuments?.includes(category.id) ?? false })),
+      canOpenApplication: !!property && !!getSubmittedApplicationSummary(application, property),
+      categories: DOCUMENT_CATEGORIES.map((category) => ({ ...category,
+        attachment: copyAttachments(application.attachments)[category.id],
+        selected: validLocalDocument(application.attachments?.[category.id], category.id),
+        legacySelection: application.selectedDocuments?.includes(category.id) ?? false,
+      })),
     };
   });
 }
@@ -54,9 +59,9 @@ export const PROFILE_FAQS = [
   { id: 'find', question: 'How do I find and filter accommodation?', answer: 'Open Explore from the student tabs. Search by location or university and use Filters to narrow price, room type, distance, and amenities.' },
   { id: 'favorites', question: 'How do I save or compare properties?', answer: 'Tap the heart on a property to save it in Favorites. Select properties in Favorites and choose Compare. Favorites stay in this app session.' },
   { id: 'apply', question: 'How do I complete an application?', answer: 'Open a property, choose an available room, and complete the application steps. Review the details before saving. The record stays in this session; it is not sent to a provider and does not confirm a booking.' },
-  { id: 'documents', question: 'What do document selections mean?', answer: 'Applications let you select document categories. These selections are not files, uploads, or verification. My Documents shows the categories linked to each saved application.' },
+  { id: 'documents', question: 'How do application attachments work?', answer: 'Choose PDF, JPG, JPEG or PNG files, up to 10 MB each, within an application. My Documents shows their filenames and temporary availability for this session. Files are not sent to a provider or verified, and may become unavailable after restart or cache cleanup.' },
   { id: 'status', question: 'Where can I find my application status?', answer: 'Open Bookings and select Applications, then open your saved record. Provider review, decisions, and booking confirmation are not connected.' },
   { id: 'messages', question: 'How do messages work?', answer: 'Open Messages to view conversations. Messages you write remain in this session and are not delivered externally. No provider response is generated.' },
-  { id: 'access', question: 'Do I need to sign in?', answer: 'You can use the student app without credentials. Account services, Google sign-in, password changes, and password recovery are not available yet.' },
-  { id: 'logout', question: 'What happens when I log out?', answer: 'Profile → Log Out opens a confirmation. Cancel keeps your session. Log Out clears your applications and personal details, restores the starting favorites and conversation/notification history, and opens Login. Continue without signing in returns to Home.' },
+  { id: 'access', question: 'Do I need to sign in?', answer: 'Yes. Use your shared CampusStay account with a confirmed email. Students and accommodation managers use the same registration and sign-in system. Forgot password on Sign In requests a recovery email. Google sign-in is not offered.' },
+  { id: 'logout', question: 'What happens when I log out?', answer: 'Profile → Log Out opens a confirmation. Cancel keeps your session. Successful sign-out removes saved account access on this device and clears current local applications and personal details. Sign in again with your existing account to continue. Other devices are not signed out.' },
 ] as const;

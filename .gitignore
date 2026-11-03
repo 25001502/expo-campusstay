@@ -1,8 +1,18 @@
 /node_modules
 dist/
 .expo/
+/android/
+/ios/
+/modules/campusstay-document-storage/android/build/
 .expo/dev/logs/start.log
 *.json
 *.json
 app.json
 app.json
+!/modules/campusstay-document-storage/package.json
+!/modules/campusstay-document-storage/expo-module.config.json
+
+# Local public project configuration and all private environment files
+.env
+.env.*
+!.env.example

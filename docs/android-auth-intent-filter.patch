@@ -1,0 +1,18 @@
+diff --git a/android/app/src/main/AndroidManifest.xml b/android/app/src/main/AndroidManifest.xml
+index 2c7e720..32b5840 100644
+--- a/android/app/src/main/AndroidManifest.xml
++++ b/android/app/src/main/AndroidManifest.xml
+@@ -22,6 +22,12 @@
+         <action android:name="android.intent.action.MAIN"/>
+         <category android:name="android.intent.category.LAUNCHER"/>
+       </intent-filter>
++      <intent-filter>
++        <action android:name="android.intent.action.VIEW"/>
++        <category android:name="android.intent.category.DEFAULT"/>
++        <category android:name="android.intent.category.BROWSABLE"/>
++        <data android:scheme="campusstay"/>
++      </intent-filter>
+     </activity>
+   </application>
+ </manifest>
+\ No newline at end of file

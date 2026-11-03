@@ -51,7 +51,7 @@ test('search matches property, city, university, and amenity fields', () => {
 });
 
 test('maximum price filters numeric property prices', () => {
-  assert.deepEqual(ids(discovery.filterAndSortProperties(data.properties, { ...defaults(), maximumPrice: 4000 })), ['p1', 'p5']);
+  assert.deepEqual(ids(discovery.filterAndSortProperties(data.properties, { ...defaults(), maximumPrice: 4000 })), ['p1', 'p3', 'p4', 'p5']);
 });
 
 test('Home quick filters map to supported property data', () => {

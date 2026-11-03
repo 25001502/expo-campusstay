@@ -1,8 +1,8 @@
-import React, { useMemo, useRef, useState } from 'react';
+import { problem, reportDiagnostic } from '../errors';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { getCurrentRooms, getRoomLabel } from '../rooms';
 import {
-  KeyboardAvoidingView,
-  Platform,
+  Alert,
   ScrollView,
   StyleSheet,
   Text,
@@ -10,7 +10,9 @@ import {
   View,
   useWindowDimensions,
 } from 'react-native';
-import { Picker } from '@react-native-picker/picker';
+import { KeyboardForm, type KeyboardFormHandle } from '../components/KeyboardForm';
+import { SelectField } from '../components/SelectField';
+import { AttachmentSourceButton } from '../components/AttachmentSourceButton';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -29,11 +31,19 @@ import {
   type ApplicationStep,
   type DocumentCategoryId,
 } from '../application';
-import { Btn, IconButton, Input } from '../components/UI';
-import { universities } from '../data';
+import { Btn, EmptyState, IconButton, Input } from '../components/UI';
+import { universities, properties as routeProperties } from '../data';
 import type { RootStackParamList } from '../navigation/types';
 import { useApplications } from '../state/ApplicationContext';
+import { useProfile } from '../state/ProfileContext';
+import { FundingFields } from '../components/FundingFields';
+import { LocalDocumentPreview } from '../components/LocalDocumentPreview';
+import { formatDocumentSize, formatDocumentType, type LocalDocument } from '../documents';
+import { fundingLabel, fundingStatusLabel, paymentDiscussionLabel } from '../funding';
+import type { AttachmentSource, ImagePreview } from '../attachmentSession';
 import { Colors, Fonts, Radius, Shadow, Spacing, StatusColors, TextColors } from '../theme';
+
+import { getRouteProperty } from '../navigation/routeProperty';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Apply'>;
 type PersonalKey = keyof ApplicationDraft['personal'];
@@ -42,20 +52,31 @@ type EmergencyKey = keyof ApplicationDraft['emergency'];
 const RELATIONSHIPS = ['Parent', 'Sibling', 'Guardian', 'Spouse', 'Friend'];
 
 export default function ApplyScreen({ navigation, route }: Props) {
-  const { property, selectedRoomId } = route.params;
+  const suppliedProperty = getRouteProperty(route.params?.property);
+  const property = suppliedProperty ?? routeProperties[0];
+  const selectedRoomId = route.params?.selectedRoomId;
   const insets = useSafeAreaInsets();
-  const { width } = useWindowDimensions();
-  const { submitApplication } = useApplications();
-  const scrollRef = useRef<ScrollView>(null);
+  const { width, fontScale } = useWindowDimensions();
+  const { submitApplication, chooseDocument, removeDocument, releaseDraft, checkDraftDocuments, picking, canPreviewDocument, previewDocument } = useApplications();
+  const { profile } = useProfile();
+  const scrollRef = useRef<KeyboardFormHandle>(null);
   const submissionStarted = useRef(false);
   const [draft, setDraft] = useState(() => createApplicationDraft(property, selectedRoomId));
   const [errors, setErrors] = useState<ApplicationErrors>({});
   const [submitting, setSubmitting] = useState(false);
+  const [checking, setChecking] = useState(false);
+  const [preview, setPreview] = useState<ImagePreview | null>(null);
+  const active = useRef(true);
+  const advancing = useRef(false);
+  const draftId = draft.draftId;
+  useEffect(() => { active.current = true; return () => { active.current = false; releaseDraft(draftId); }; }, [draftId, releaseDraft]);
   const invalidSuppliedRoom = !!selectedRoomId && draft.selectedRoomId === null;
   const currentRooms = getCurrentRooms(property);
   const availableRooms = currentRooms.filter((room) => room.available > 0);
   const review = useMemo(() => buildApplicationReview(draft, property), [draft, property]);
   const step = draft.currentStep;
+
+  if (!suppliedProperty || draft.propertyId !== property.id) return <ScrollView style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom, paddingLeft: insets.left, paddingRight: insets.right }]} contentContainerStyle={{ flexGrow: 1 }}><StatusBar style="dark" /><EmptyState title="Application unavailable" description="This property or application route is no longer available. Choose a property to start again." actionLabel="Explore accommodation" onAction={() => navigation.popTo('Main', { screen: 'Explore' })} /></ScrollView>;
 
   const updateDraft = (update: Partial<ApplicationDraft>) => {
     setDraft((current) => ({ ...current, ...update }));
@@ -72,15 +93,33 @@ export default function ApplyScreen({ navigation, route }: Props) {
     setErrors((current) => ({ ...current, [errorKey]: undefined }));
   };
 
-  const toggleDocument = (id: DocumentCategoryId) => {
-    setDraft((current) => ({
-      ...current,
-      selectedDocuments: current.selectedDocuments.includes(id)
-        ? current.selectedDocuments.filter((documentId) => documentId !== id)
-        : [...current.selectedDocuments, id],
-    }));
-    setErrors((current) => ({ ...current, documents: undefined, [`document.${id}`]: undefined }));
+  const chooseFile = async (id: DocumentCategoryId, source: AttachmentSource) => {
+    const result = await chooseDocument(draftId, id, source);
+    if (!active.current) return;
+    if (result.status === 'selected') {
+      setDraft((current) => ({ ...current, attachments: { ...current.attachments, [id]: result.document } }));
+      setErrors((current) => ({ ...current, documents: undefined, [`document.${id}`]: undefined }));
+    } else if (result.status === 'error') setErrors((current) => ({ ...current, [`document.${id}`]: result.message }));
   };
+  const removeFile = (document: LocalDocument) => {
+    removeDocument(draftId, document.id);
+    setDraft((current) => { const attachments = { ...current.attachments }; delete attachments[document.category]; return { ...current, attachments }; });
+    setErrors((current) => ({ ...current, [`document.${document.category}`]: undefined }));
+  };
+  const openPreview = (document: LocalDocument) => {
+    const result = previewDocument(draftId, document);
+    if (result.status === 'image') setPreview(result.preview);
+    else if (result.status === 'error') Alert.alert('Preview unavailable', result.message);
+  };
+  const checkedDraft = async () => {
+    const checked = await checkDraftDocuments(draft);
+    if (active.current) setDraft(checked);
+    return checked;
+  };
+  const expiredErrors = (value: ApplicationDraft): ApplicationErrors => Object.fromEntries(
+    Object.values(value.attachments).filter((document) => document.state === 'unavailable')
+      .map((document) => [`document.${document.category}`, `${DOCUMENT_CATEGORIES.find((category) => category.id === document.category)?.label}: file unavailable. Replace or remove it.`]),
+  );
 
   const showValidation = (nextErrors: ApplicationErrors) => {
     setErrors(nextErrors);
@@ -89,64 +128,99 @@ export default function ApplyScreen({ navigation, route }: Props) {
 
   const goBack = () => {
     if (step === 0) navigation.goBack();
-    else updateDraft({ currentStep: (step - 1) as ApplicationStep });
+    else editStep((step - 1) as ApplicationStep);
   };
 
-  const continueToNextStep = () => {
-    const nextErrors = validateApplicationStep(step, draft, property);
-    if (Object.keys(nextErrors).length) {
-      showValidation(nextErrors);
-      return;
-    }
+  const editStep = (nextStep: ApplicationStep) => {
+    updateDraft({ currentStep: nextStep });
     setErrors({});
-    updateDraft({ currentStep: (step + 1) as ApplicationStep });
-    scrollRef.current?.scrollTo({ y: 0, animated: false });
   };
 
-  const submit = () => {
-    if (submissionStarted.current) return;
-    const normalized = normalizeApplicationDraft(draft);
-    const nextErrors = validateApplication(normalized, property);
-    const invalidStep = firstInvalidApplicationStep(nextErrors);
-    if (invalidStep !== undefined) {
-      updateDraft({ currentStep: invalidStep });
-      showValidation(nextErrors);
-      return;
-    }
+  const continueToNextStep = async () => {
+    if (advancing.current || picking) return;
+    advancing.current = true;
+    setChecking(true);
+    try {
+      const checkFiles = step === 2 || step === 3;
+      const value = checkFiles ? await checkedDraft() : draft;
+      if (!active.current) return;
+      const nextErrors = { ...validateApplicationStep(step, value, property), ...(step === 3 ? validateApplicationStep(2, value, property) : {}), ...(checkFiles ? expiredErrors(value) : {}) };
+      if (Object.keys(nextErrors).length) {
+        const invalidStep = firstInvalidApplicationStep(nextErrors);
+        if (invalidStep !== undefined && invalidStep < step) updateDraft({ currentStep: invalidStep });
+        showValidation(nextErrors);
+        return;
+      }
+      setErrors({});
+      updateDraft({ currentStep: (step + 1) as ApplicationStep });
+    } catch {
+      reportDiagnostic('attachments', 'attachments');
+      if (active.current) showValidation({ documents: problem('attachments').message });
+    } finally { advancing.current = false; if (active.current) setChecking(false); }
+  };
+
+  const submit = async () => {
+    if (submissionStarted.current || advancing.current || picking) return;
     submissionStarted.current = true;
     setSubmitting(true);
-    const application = submitApplication(normalized);
-    navigation.replace('AppStatus', { property, applicationId: application.id });
+    let saved = false;
+    try {
+      const normalized = normalizeApplicationDraft(await checkedDraft());
+      if (!active.current) return;
+      const nextErrors = { ...validateApplication(normalized, property), ...expiredErrors(normalized) };
+      const invalidStep = firstInvalidApplicationStep(nextErrors);
+      if (invalidStep !== undefined) {
+        updateDraft({ currentStep: invalidStep });
+        showValidation(nextErrors);
+        return;
+      }
+      const application = submitApplication(normalized);
+      saved = true;
+      navigation.replace('AppStatus', { property, applicationId: application.id });
+    } catch {
+      if (!active.current) return;
+      updateDraft({ currentStep: 2 });
+      showValidation({ documents: 'The files could not be saved. Check their availability and try again.' });
+    } finally { if (!saved) { submissionStarted.current = false; if (active.current) setSubmitting(false); } }
   };
 
   const errorSummary = Object.values(errors).find(Boolean);
-  const compactStepper = width < 360;
+  const compactStepper = width < 360 || fontScale >= 1.3;
+  const circleSize = Math.max(28, 28 * Math.min(fontScale, 1.5));
 
   return (
-    <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-      <StatusBar style="dark" />
-      <View style={[styles.container, { paddingTop: insets.top }]}>
+    <>
+      <KeyboardForm ref={scrollRef} resetKey={step} contentContainerStyle={styles.scrollContent} style={[styles.container, { paddingTop: insets.top }]}
+        header={<><StatusBar style="dark" />
         <View style={styles.topBar}>
           <IconButton icon="arrow-back-outline" label={step === 0 ? 'Leave application' : `Back to ${APPLICATION_STEPS[step - 1]}`} onPress={goBack} />
           <Text accessibilityRole="header" style={styles.topTitle}>Apply for Accommodation</Text>
           <View style={styles.headerSpacer} />
         </View>
 
-        <View accessible accessibilityRole="text" accessibilityLabel={`Application progress, step ${step + 1} of ${APPLICATION_STEPS.length}: ${APPLICATION_STEPS[step]}`} style={styles.stepper}>
+        <View accessible accessibilityRole="text" accessibilityLabel={`Application progress, step ${step + 1} of ${APPLICATION_STEPS.length}: ${APPLICATION_STEPS[step]}`}>
+        <View style={styles.stepper}>
           {APPLICATION_STEPS.map((label, index) => (
             <React.Fragment key={label}>
               <View style={styles.stepItem}>
-                <View style={[styles.stepCircle, index <= step && styles.stepCircleActive]}>
+                <View style={[styles.stepCircle, { width: circleSize, height: circleSize, borderRadius: circleSize / 2 }, index <= step && styles.stepCircleActive]}>
                   <Text style={[styles.stepNum, index <= step && styles.stepNumActive]}>{index < step ? '✓' : index + 1}</Text>
                 </View>
-                {!compactStepper || index === step ? <Text numberOfLines={1} style={[styles.stepLabel, index === step && styles.stepLabelActive]}>{label}</Text> : null}
+                {!compactStepper ? <Text style={[styles.stepLabel, index === step && styles.stepLabelActive]}>{label}</Text> : null}
               </View>
               {index < APPLICATION_STEPS.length - 1 ? <View style={[styles.stepLine, index < step && styles.stepLineActive]} /> : null}
             </React.Fragment>
           ))}
         </View>
+        {compactStepper ? <Text style={styles.progressCaption}>Step {step + 1} of 5 · {APPLICATION_STEPS[step]}</Text> : null}
+        </View>
 
-        <ScrollView ref={scrollRef} style={styles.scroll} contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets>
+        </>}
+        footer={
+        <View style={[styles.footer, { paddingBottom: insets.bottom + Spacing.sm }]}>
+          {step < 4 ? <Btn onPress={continueToNextStep} loading={checking} disabled={checking || picking} style={styles.nextButton}>{step === 3 ? 'Review Application' : 'Continue →'}</Btn> : <Btn accessibilityHint="Creates a record for this app session only" loading={submitting} disabled={submitting || picking} onPress={submit} style={styles.nextButton}>Save Application</Btn>}
+        </View>
+        }>
           {errorSummary ? (
             <View accessibilityRole="alert" accessibilityLiveRegion="assertive" style={styles.errorSummary}>
               <Ionicons name="alert-circle-outline" size={20} color={Colors.red600} />
@@ -168,7 +242,7 @@ export default function ApplyScreen({ navigation, route }: Props) {
                   <TouchableOpacity
                     key={room.id}
                     accessibilityRole="radio"
-                    accessibilityLabel={`${getRoomLabel(room)}, offering ${room.id}, capacity ${room.capacity}, R${room.price.toLocaleString('en-ZA')} per month, ${room.available} rooms listed`}
+                    testID={`room-option-${room.id}`} accessibilityLabel={`${getRoomLabel(room)}, capacity ${room.capacity}, R${room.price.toLocaleString('en-ZA')} per month, ${room.available} rooms listed`}
                     accessibilityState={{ selected, disabled }}
                     activeOpacity={0.8}
                     disabled={disabled}
@@ -197,17 +271,10 @@ export default function ApplyScreen({ navigation, route }: Props) {
             <View style={styles.stepContent}>
               <Text accessibilityRole="header" style={styles.stepTitle}>Personal Information</Text>
               <Text style={styles.stepSub}>Information entered here remains in the current app session.</Text>
+              {Object.values(profile).some(Boolean) ? <Btn variant="secondary" onPress={() => { setDraft((current) => ({ ...current, personal: { ...current.personal, ...Object.fromEntries(Object.entries(profile).filter(([, value]) => value.trim())) } })); setErrors({}); }}>Use saved profile details</Btn> : null}
               <Input label="Full name" placeholder="e.g. Alex Student" value={draft.personal.fullName} onChangeText={(value) => updatePersonal('fullName', value)} error={errors.fullName} required autoComplete="name" returnKeyType="next" style={styles.field} />
               <Input label="Student number" placeholder="e.g. 2021012345" value={draft.personal.studentNumber} onChangeText={(value) => updatePersonal('studentNumber', value)} error={errors.studentNumber} required keyboardType="number-pad" returnKeyType="next" style={styles.field} />
-              <View style={styles.field}>
-                <Text style={styles.pickerLabel}>University <Text style={styles.required}>*</Text></Text>
-                <View style={[styles.pickerWrapper, errors.universityId && styles.pickerError]}>
-                  <Picker accessibilityLabel="University, required" selectedValue={draft.personal.universityId} onValueChange={(value: string) => updatePersonal('universityId', value)} style={styles.picker}>
-                    {universities.map((university) => <Picker.Item key={university.id} label={university.name} value={university.id} />)}
-                  </Picker>
-                </View>
-                {errors.universityId ? <Text accessibilityRole="alert" style={styles.fieldError}>{errors.universityId}</Text> : null}
-              </View>
+                <View style={styles.field}><SelectField label="University" required value={draft.personal.universityId} options={universities.map((university) => ({ value: university.id, label: university.name }))} placeholder="Select your university" onChange={(value) => updatePersonal('universityId', value)} error={errors.universityId} /></View>
               <Input label="Phone number" placeholder="e.g. +27 71 234 5678" value={draft.personal.phone} onChangeText={(value) => updatePersonal('phone', value)} error={errors.phone} required keyboardType="phone-pad" autoComplete="tel" returnKeyType="next" style={styles.field} />
               <Input label="Email address" placeholder="e.g. student@example.com" value={draft.personal.email} onChangeText={(value) => updatePersonal('email', value)} error={errors.email} required keyboardType="email-address" autoComplete="email" returnKeyType="done" style={styles.field} />
             </View>
@@ -215,28 +282,34 @@ export default function ApplyScreen({ navigation, route }: Props) {
 
           {step === 2 ? (
             <View style={styles.stepContent}>
-              <Text accessibilityRole="header" style={styles.stepTitle}>Document Selection</Text>
-              <Text style={styles.stepSub}>Select document categories below. No files are uploaded, stored, checked, or sent.</Text>
+              <Text accessibilityRole="header" style={styles.stepTitle}>Documents</Text>
+              <Text style={styles.stepSub}>Choose PDF, JPG, JPEG or PNG files up to 10 MB each. Attachments are temporary and remain in this session. No files are sent to a provider.</Text>
+              <View style={styles.reviewSection}>
+                <Text accessibilityRole="header" style={styles.reviewTitle}>Funding Information</Text>
+                <FundingFields funding={draft.funding} error={errors.funding} disabled={picking || checking} onChange={(funding) => { updateDraft({ funding }); setErrors((current) => ({ ...current, funding: undefined })); }} />
+              </View>
               {DOCUMENT_CATEGORIES.map((category) => {
-                const selected = draft.selectedDocuments.includes(category.id);
+                const document = draft.attachments[category.id];
+                const selected = document?.state === 'attached-local';
                 return (
-                  <TouchableOpacity
+                  <View
                     key={category.id}
-                    accessibilityRole="checkbox"
-                    accessibilityLabel={`${category.label}, ${category.required ? 'required' : 'optional'} selection`}
-                    accessibilityHint="Does not choose or upload a real file"
-                    accessibilityState={{ checked: selected }}
-                    onPress={() => toggleDocument(category.id)}
                     style={[styles.docCard, selected && styles.docCardSelected]}
                   >
+                    <View style={styles.optionTop}>
                     <View style={[styles.docIcon, selected && styles.docIconSelected]}><Ionicons name={selected ? 'checkmark' : 'document-outline'} size={20} color={selected ? Colors.white : Colors.blue} /></View>
                     <View style={styles.optionCopy}>
                       <Text style={styles.docName}>{category.label}</Text>
-                      <Text style={[styles.docStatus, selected && styles.docStatusSelected]}>{selected ? 'Selected' : category.required ? 'Required · Not selected' : 'Optional · Not selected'}</Text>
+                      <Text style={[styles.docStatus, selected && styles.docStatusSelected]}>{category.required ? 'Required' : 'Optional'} · {selected ? 'Attached locally' : document ? 'File unavailable · Replace or remove' : 'Not attached'}</Text>
+                    </View></View>
+                    {document ? <View accessibilityLiveRegion="polite"><Text style={styles.docName}>{document.name}</Text><Text style={styles.docStatus}>{formatDocumentType(document.mimeType)} · {formatDocumentSize(document.size)}</Text></View> : null}
                       {errors[`document.${category.id}`] ? <Text accessibilityRole="alert" style={styles.fieldError}>{errors[`document.${category.id}`]}</Text> : null}
+                    <View style={styles.documentActions}>
+                      <AttachmentSourceButton categoryLabel={category.label} replacing={!!document} disabled={picking || checking} onChoose={(source) => chooseFile(category.id, source)} />
+                      {document ? <Btn variant="ghost" accessibilityLabel={`Remove ${category.label}`} disabled={picking || checking} onPress={() => removeFile(document)}>Remove</Btn> : null}
+                      {document && selected && canPreviewDocument(draftId, document) ? <Btn variant="ghost" accessibilityLabel={`Preview ${category.label}`} onPress={() => openPreview(document)}>Preview</Btn> : null}
                     </View>
-                    <Text style={styles.docAction}>{selected ? 'Remove' : 'Select'}</Text>
-                  </TouchableOpacity>
+                  </View>
                 );
               })}
             </View>
@@ -247,15 +320,7 @@ export default function ApplyScreen({ navigation, route }: Props) {
               <Text accessibilityRole="header" style={styles.stepTitle}>Emergency Contact</Text>
               <Text style={styles.stepSub}>This contact remains in the current app session and will not be contacted.</Text>
               <Input label="Full name" placeholder="e.g. Taylor Student" value={draft.emergency.fullName} onChangeText={(value) => updateEmergency('fullName', value)} error={errors['emergency.fullName']} required autoComplete="name" returnKeyType="next" style={styles.field} />
-              <View style={styles.field}>
-                <Text style={styles.pickerLabel}>Relationship <Text style={styles.required}>*</Text></Text>
-                <View style={[styles.pickerWrapper, errors['emergency.relationship'] && styles.pickerError]}>
-                  <Picker accessibilityLabel="Relationship, required" selectedValue={draft.emergency.relationship} onValueChange={(value: string) => updateEmergency('relationship', value)} style={styles.picker}>
-                    {RELATIONSHIPS.map((relationship) => <Picker.Item key={relationship} label={relationship} value={relationship} />)}
-                  </Picker>
-                </View>
-                {errors['emergency.relationship'] ? <Text accessibilityRole="alert" style={styles.fieldError}>{errors['emergency.relationship']}</Text> : null}
-              </View>
+              <View style={styles.field}><SelectField label="Relationship" required value={draft.emergency.relationship} options={RELATIONSHIPS.map((relationship) => ({ value: relationship, label: relationship }))} placeholder="Select a relationship" onChange={(value) => updateEmergency('relationship', value)} error={errors['emergency.relationship']} /></View>
               <Input label="Phone number" placeholder="e.g. +27 83 456 7890" value={draft.emergency.phone} onChangeText={(value) => updateEmergency('phone', value)} error={errors['emergency.phone']} required keyboardType="phone-pad" autoComplete="tel" returnKeyType="done" style={styles.field} />
             </View>
           ) : null}
@@ -264,22 +329,29 @@ export default function ApplyScreen({ navigation, route }: Props) {
             <View style={styles.stepContent}>
               <Text accessibilityRole="header" style={styles.stepTitle}>Review Application</Text>
               <Text style={styles.stepSub}>Confirm the information below. This will create a local record for the current session.</Text>
-              <ReviewSection title="Accommodation" onEdit={() => updateDraft({ currentStep: 0 })}>
+              <ReviewSection title="Accommodation" onEdit={() => editStep(0)}>
                 <ReviewRow label="Property" value={review.propertyName} />
                 <ReviewRow label="Room" value={review.roomType} />
                 <ReviewRow label="Monthly price" value={`R${review.roomPrice.toLocaleString()}`} />
               </ReviewSection>
-              <ReviewSection title="Personal information" onEdit={() => updateDraft({ currentStep: 1 })}>
+              <ReviewSection title="Personal information" onEdit={() => editStep(1)}>
                 <ReviewRow label="Full name" value={review.personal.fullName} />
                 <ReviewRow label="Student number" value={review.personal.studentNumber} />
                 <ReviewRow label="University" value={universities.find((university) => university.id === review.personal.universityId)?.name ?? review.personal.universityId} />
                 <ReviewRow label="Phone" value={review.personal.phone} />
                 <ReviewRow label="Email" value={review.personal.email} />
               </ReviewSection>
-              <ReviewSection title="Document selections" onEdit={() => updateDraft({ currentStep: 2 })}>
-                {review.documents.map((document) => <ReviewRow key={document.id} label={`${document.label}${document.required ? ' (required)' : ' (optional)'}`} value={document.selected ? 'Selected' : 'Not selected'} />)}
+              <ReviewSection title="Funding information" onEdit={() => editStep(2)}>
+                <ReviewRow label="Funding source" value={fundingLabel(review.funding)} />
+                <ReviewRow label="Funding status" value={fundingStatusLabel(review.funding)} />
+                <ReviewRow label="Proof of Funding" value={draft.attachments.funding ? `${draft.attachments.funding.name} · Supporting document attached locally` : 'Not attached (optional)'} />
+                <ReviewRow label="Declaration" value={review.funding.source ? 'Student-provided · Not verified' : 'Not declared'} />
+                <ReviewRow label="Payment discussion" value={paymentDiscussionLabel(review.funding)} />
               </ReviewSection>
-              <ReviewSection title="Emergency contact" onEdit={() => updateDraft({ currentStep: 3 })}>
+              <ReviewSection title="Documents" onEdit={() => editStep(2)}>
+                {review.documents.map((document) => <ReviewRow key={document.id} label={`${document.label}${document.required ? ' (required)' : ' (optional)'}`} value={document.attachment ? `${document.attachment.name}\n${formatDocumentType(document.attachment.mimeType)} · ${formatDocumentSize(document.attachment.size)}\n${document.selected ? 'Attached locally' : 'File unavailable'}` : 'Not attached'} />)}
+              </ReviewSection>
+              <ReviewSection title="Emergency contact" onEdit={() => editStep(3)}>
                 <ReviewRow label="Full name" value={review.emergency.fullName} />
                 <ReviewRow label="Relationship" value={review.emergency.relationship} />
                 <ReviewRow label="Phone" value={review.emergency.phone} />
@@ -287,13 +359,9 @@ export default function ApplyScreen({ navigation, route }: Props) {
               <View style={styles.reviewNote}><Text style={styles.reviewNoteText}>Saving creates a record for this session. No accommodation provider receives it, and it does not reserve or confirm a room.</Text></View>
             </View>
           ) : null}
-        </ScrollView>
-
-        <View style={[styles.footer, { paddingBottom: insets.bottom + Spacing.sm }]}>
-          {step < 4 ? <Btn onPress={continueToNextStep} style={styles.nextButton}>{step === 3 ? 'Review Application' : 'Continue →'}</Btn> : <Btn accessibilityHint="Creates a record for this app session only" loading={submitting} disabled={submitting} onPress={submit} style={styles.nextButton}>Save Application</Btn>}
-        </View>
-      </View>
-    </KeyboardAvoidingView>
+      </KeyboardForm>
+      <LocalDocumentPreview preview={preview} onClose={() => setPreview(null)} />
+    </>
   );
 }
 
@@ -302,7 +370,9 @@ function ReviewSection({ title, onEdit, children }: { title: string; onEdit: () 
 }
 
 function ReviewRow({ label, value }: { label: string; value: string }) {
-  return <View accessible accessibilityLabel={`${label}: ${value}`} style={styles.reviewRow}><Text style={styles.reviewLabel}>{label}</Text><Text style={styles.reviewValue}>{value}</Text></View>;
+  const { width, fontScale } = useWindowDimensions();
+  const stacked = width < 360 || fontScale >= 1.3;
+  return <View accessible accessibilityLabel={`${label}: ${value}`} style={[styles.reviewRow, stacked && { flexDirection: 'column', gap: 4 }]}><Text style={[styles.reviewLabel, stacked && { flex: 0 }]}>{label}</Text><Text style={[styles.reviewValue, stacked && { flex: 0, textAlign: 'left' }]}>{value}</Text></View>;
 }
 
 const styles = StyleSheet.create({
@@ -321,6 +391,10 @@ const styles = StyleSheet.create({
   stepLabelActive: { color: Colors.blue, fontFamily: Fonts.bodySemi },
   stepLine: { flex: 1, height: 2, marginHorizontal: 4, backgroundColor: Colors.slate200 },
   stepLineActive: { backgroundColor: Colors.blue },
+  progressCaption: { paddingHorizontal: Spacing.xl, paddingBottom: Spacing.sm, fontFamily: Fonts.bodySemi, fontSize: 12, lineHeight: 18, color: Colors.blue },
+  selectionRow: { minHeight: 48, paddingVertical: Spacing.sm, flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.sm },
+  selectionText: { flex: 1, fontFamily: Fonts.bodyMed, fontSize: 14, lineHeight: 21, color: TextColors.primary },
+  documentActions: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm },
   scroll: { flex: 1 },
   scrollContent: { padding: Spacing.xl, paddingBottom: Spacing.xxl },
   stepContent: { gap: Spacing.md },
@@ -346,13 +420,8 @@ const styles = StyleSheet.create({
   radioCircleActive: { borderColor: Colors.blue },
   radioDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: Colors.blue },
   field: { marginTop: Spacing.xs },
-  pickerLabel: { fontSize: 13, lineHeight: 19, fontFamily: Fonts.bodySemi, color: TextColors.secondary, marginBottom: 6 },
-  required: { color: Colors.red600 },
-  pickerWrapper: { minHeight: 48, justifyContent: 'center', borderWidth: 1, borderColor: Colors.slate300, borderRadius: Radius.lg, overflow: 'hidden', backgroundColor: Colors.white },
-  pickerError: { borderColor: Colors.red600, borderWidth: 2 },
-  picker: { height: 48, color: TextColors.primary },
   fieldError: { marginTop: 5, fontSize: 12, lineHeight: 17, fontFamily: Fonts.body, color: TextColors.danger },
-  docCard: { minHeight: 92, flexDirection: 'row', alignItems: 'center', gap: Spacing.md, padding: Spacing.md, borderRadius: Radius.xl, borderWidth: 1, borderColor: Colors.slate200, backgroundColor: Colors.white },
+  docCard: { minHeight: 92, gap: Spacing.md, padding: Spacing.md, borderRadius: Radius.xl, borderWidth: 1, borderColor: Colors.slate200, backgroundColor: Colors.white },
   docCardSelected: { borderColor: Colors.blue, backgroundColor: Colors.blue50 },
   docIcon: { width: 44, height: 44, borderRadius: Radius.lg, alignItems: 'center', justifyContent: 'center', backgroundColor: Colors.blue100 },
   docIconSelected: { backgroundColor: Colors.blue },

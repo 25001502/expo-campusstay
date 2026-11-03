@@ -138,3 +138,19 @@ test('RemoteImage exposes loading and failure states with retry', () => {
   retry.props.onPress();
   assert.deepEqual(failedModule.stateUpdates.map((update) => update.value), [false, true, 1]);
 });
+
+test('rating text is legible on its actual white and slate50 surfaces', () => {
+  const { exports: ui } = loadComponent(uiPath);
+  const rating = ui.StarRating({ rating: 4.8 });
+  assert.equal(rating.props.accessibilityLabel, '4.8 out of 5 stars');
+  const luminance = (hex) => {
+    const rgb = hex.slice(1).match(/../g).map((v) => parseInt(v,16) / 255)
+      .map((v) => v <= .04045 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4);
+    return rgb[0] * .2126 + rgb[1] * .7152 + rgb[2] * .0722;
+  };
+  const foreground = luminance(flattenStyle(rating.props.style).color);
+  for (const background of ['#FFFFFF','#F8FAFC']) {
+    const surface = luminance(background);
+    assert.ok((Math.max(foreground,surface) + .05) / (Math.min(foreground,surface) + .05) >= 4.5);
+  }
+});
